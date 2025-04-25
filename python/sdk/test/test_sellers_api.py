@@ -53,6 +53,19 @@ class TestSellersApi(unittest.TestCase):
         url = f"{self.mock_server_endpoint}/response/{response}/code/{code}"
         requests.post(url)
 
+    def _get_random_value(self, data_type):
+        basic_types = {
+        'str': "test_string",
+        'string': "test_string",
+        'int': 123,
+        'integer': 123,
+        'float': 123.45,
+        'bool': True,
+        'boolean': True
+        }
+
+        return basic_types.get(data_type.lower(), {})
+
     def assert_valid_response_payload(self, status_code: int, body: any) -> None:
         if status_code != 204:
             self.assertIsNotNone(body)
