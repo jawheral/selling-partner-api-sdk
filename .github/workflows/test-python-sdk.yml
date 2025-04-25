@@ -1,7 +1,6 @@
 name: Test Python SDK
 
 on:
-  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -35,6 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
+          pip install pytest-html
       - name: Run pytest
         working-directory: ./python/sdk
         run: pytest test --html=report/index.html --self-contained-html
