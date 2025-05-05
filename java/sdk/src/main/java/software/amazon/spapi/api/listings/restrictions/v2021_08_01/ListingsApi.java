@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,18 +28,26 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.listings.restrictions.v2021_08_01.RestrictionList;
 
 public class ListingsApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public ListingsApi(ApiClient apiClient) {
+    public ListingsApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket getListingsRestrictionsBucket = Bucket.builder()
+            .addLimit(config.getLimit("ListingsApi-getListingsRestrictions"))
+            .build();
 
     /**
      * Build call for getListingsRestrictions
@@ -52,19 +60,17 @@ public class ListingsApi {
      *     first marketplace is used. Examples: \&quot;en_US\&quot;, \&quot;fr_CA\&quot;, \&quot;fr_FR\&quot;. Localized
      *     messages default to \&quot;en_US\&quot; when a localization is not available in the specified locale.
      *     (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getListingsRestrictionsCall(
+    private okhttp3.Call getListingsRestrictionsCall(
             String asin,
             String sellerId,
             List<String> marketplaceIds,
             String conditionType,
             String reasonLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -95,17 +101,6 @@ public class ListingsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -114,7 +109,6 @@ public class ListingsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -124,7 +118,6 @@ public class ListingsApi {
             List<String> marketplaceIds,
             String conditionType,
             String reasonLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'asin' is set
@@ -143,7 +136,7 @@ public class ListingsApi {
         }
 
         return getListingsRestrictionsCall(
-                asin, sellerId, marketplaceIds, conditionType, reasonLocale, progressListener, progressRequestListener);
+                asin, sellerId, marketplaceIds, conditionType, reasonLocale, progressRequestListener);
     }
 
     /**
@@ -198,9 +191,11 @@ public class ListingsApi {
             String asin, String sellerId, List<String> marketplaceIds, String conditionType, String reasonLocale)
             throws ApiException, LWAException {
         okhttp3.Call call = getListingsRestrictionsValidateBeforeCall(
-                asin, sellerId, marketplaceIds, conditionType, reasonLocale, null, null);
-        Type localVarReturnType = new TypeToken<RestrictionList>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                asin, sellerId, marketplaceIds, conditionType, reasonLocale, null);
+        if (disableRateLimiting || getListingsRestrictionsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<RestrictionList>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getListingsRestrictions operation exceeds rate limit");
     }
 
     /**
@@ -233,19 +228,19 @@ public class ListingsApi {
             final ApiCallback<RestrictionList> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = getListingsRestrictionsValidateBeforeCall(
-                asin, sellerId, marketplaceIds, conditionType, reasonLocale, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<RestrictionList>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                asin, sellerId, marketplaceIds, conditionType, reasonLocale, progressRequestListener);
+        if (disableRateLimiting || getListingsRestrictionsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<RestrictionList>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getListingsRestrictions operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -253,7 +248,7 @@ public class ListingsApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -275,13 +270,8 @@ public class ListingsApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -304,10 +294,11 @@ public class ListingsApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new ListingsApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new ListingsApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

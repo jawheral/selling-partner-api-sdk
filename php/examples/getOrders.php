@@ -18,6 +18,7 @@ $lwaAuthorizationCredentials = new LWAAuthorizationCredentials([
     "refreshToken" => $_ENV['SP_API_REFRESH_TOKEN'],
     "endpoint" => $_ENV['SP_API_ENDPOINT']
 ]);
+//Initialize config
 $config = new Configuration([], $lwaAuthorizationCredentials);
 
 // Setting SP-API endpoint region
@@ -27,7 +28,7 @@ $config->setHost($_ENV['SP_API_ENDPOINT_HOST']);
 $client = new GuzzleHttp\Client();
 
 // Create an instance of the Orders Api
-$api = new OrdersV0Api($config, null, $client);
+$api = new OrdersV0Api($config, $client);
 
 try {
     // Call getOrders

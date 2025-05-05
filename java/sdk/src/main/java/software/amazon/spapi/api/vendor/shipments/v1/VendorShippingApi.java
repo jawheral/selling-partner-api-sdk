@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,9 +29,9 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.vendor.shipments.v1.GetShipmentDetailsResponse;
 import software.amazon.spapi.models.vendor.shipments.v1.GetShipmentLabels;
@@ -41,10 +41,30 @@ import software.amazon.spapi.models.vendor.shipments.v1.SubmitShipments;
 
 public class VendorShippingApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public VendorShippingApi(ApiClient apiClient) {
+    public VendorShippingApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket getShipmentDetailsBucket = Bucket.builder()
+            .addLimit(config.getLimit("VendorShippingApi-getShipmentDetails"))
+            .build();
+
+    public final Bucket getShipmentLabelsBucket = Bucket.builder()
+            .addLimit(config.getLimit("VendorShippingApi-getShipmentLabels"))
+            .build();
+
+    public final Bucket submitShipmentConfirmationsBucket = Bucket.builder()
+            .addLimit(config.getLimit("VendorShippingApi-submitShipmentConfirmations"))
+            .build();
+
+    public final Bucket submitShipmentsBucket = Bucket.builder()
+            .addLimit(config.getLimit("VendorShippingApi-submitShipments"))
+            .build();
 
     /**
      * Build call for getShipmentDetails
@@ -108,13 +128,12 @@ public class VendorShippingApi {
      *     &#x27;shipToParty.partyId&#x27; in the Shipment. (optional)
      * @param sellerWarehouseCode Get Shipping Details based on vendor warehouse code. This value should be same as
      *     &#x27;sellingParty.partyId&#x27; in the Shipment. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getShipmentDetailsCall(
+    private okhttp3.Call getShipmentDetailsCall(
             Long limit,
             String sortOrder,
             String nextToken,
@@ -139,7 +158,6 @@ public class VendorShippingApi {
             String buyerReferenceNumber,
             String buyerWarehouseCode,
             String sellerWarehouseCode,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -207,17 +225,6 @@ public class VendorShippingApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -226,7 +233,6 @@ public class VendorShippingApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -255,7 +261,6 @@ public class VendorShippingApi {
             String buyerReferenceNumber,
             String buyerWarehouseCode,
             String sellerWarehouseCode,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
 
@@ -284,7 +289,6 @@ public class VendorShippingApi {
                 buyerReferenceNumber,
                 buyerWarehouseCode,
                 sellerWarehouseCode,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -539,10 +543,11 @@ public class VendorShippingApi {
                 buyerReferenceNumber,
                 buyerWarehouseCode,
                 sellerWarehouseCode,
-                null,
                 null);
-        Type localVarReturnType = new TypeToken<GetShipmentDetailsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        if (disableRateLimiting || getShipmentDetailsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentDetailsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getShipmentDetails operation exceeds rate limit");
     }
 
     /**
@@ -647,11 +652,9 @@ public class VendorShippingApi {
             final ApiCallback<GetShipmentDetailsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -680,11 +683,12 @@ public class VendorShippingApi {
                 buyerReferenceNumber,
                 buyerWarehouseCode,
                 sellerWarehouseCode,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetShipmentDetailsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || getShipmentDetailsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentDetailsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getShipmentDetails operation exceeds rate limit");
     }
     /**
      * Build call for getShipmentLabels
@@ -704,13 +708,12 @@ public class VendorShippingApi {
      * @param vendorShipmentIdentifier Get Shipment labels by passing vendor shipment identifier. (optional)
      * @param sellerWarehouseCode Get Shipping labels based on vendor warehouse code. This value must be same as the
      *     &#x60;sellingParty.partyId&#x60; in the shipment. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getShipmentLabelsCall(
+    private okhttp3.Call getShipmentLabelsCall(
             Long limit,
             String sortOrder,
             String nextToken,
@@ -719,7 +722,6 @@ public class VendorShippingApi {
             String buyerReferenceNumber,
             String vendorShipmentIdentifier,
             String sellerWarehouseCode,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -756,17 +758,6 @@ public class VendorShippingApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -775,7 +766,6 @@ public class VendorShippingApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -788,7 +778,6 @@ public class VendorShippingApi {
             String buyerReferenceNumber,
             String vendorShipmentIdentifier,
             String sellerWarehouseCode,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
 
@@ -801,7 +790,6 @@ public class VendorShippingApi {
                 buyerReferenceNumber,
                 vendorShipmentIdentifier,
                 sellerWarehouseCode,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -900,10 +888,11 @@ public class VendorShippingApi {
                 buyerReferenceNumber,
                 vendorShipmentIdentifier,
                 sellerWarehouseCode,
-                null,
                 null);
-        Type localVarReturnType = new TypeToken<GetShipmentLabels>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        if (disableRateLimiting || getShipmentLabelsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentLabels>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getShipmentLabels operation exceeds rate limit");
     }
 
     /**
@@ -946,11 +935,9 @@ public class VendorShippingApi {
             final ApiCallback<GetShipmentLabels> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -963,25 +950,24 @@ public class VendorShippingApi {
                 buyerReferenceNumber,
                 vendorShipmentIdentifier,
                 sellerWarehouseCode,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetShipmentLabels>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || getShipmentLabelsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentLabels>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getShipmentLabels operation exceeds rate limit");
     }
     /**
      * Build call for submitShipmentConfirmations
      *
      * @param body A request to submit shipment confirmation. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call submitShipmentConfirmationsCall(
+    private okhttp3.Call submitShipmentConfirmationsCall(
             SubmitShipmentConfirmationsRequest body,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
@@ -1004,17 +990,6 @@ public class VendorShippingApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -1023,13 +998,11 @@ public class VendorShippingApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call submitShipmentConfirmationsValidateBeforeCall(
             SubmitShipmentConfirmationsRequest body,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
@@ -1038,7 +1011,7 @@ public class VendorShippingApi {
                     "Missing the required parameter 'body' when calling submitShipmentConfirmations(Async)");
         }
 
-        return submitShipmentConfirmationsCall(body, progressListener, progressRequestListener);
+        return submitShipmentConfirmationsCall(body, progressRequestListener);
     }
 
     /**
@@ -1077,9 +1050,11 @@ public class VendorShippingApi {
      */
     public ApiResponse<SubmitShipmentConfirmationsResponse> submitShipmentConfirmationsWithHttpInfo(
             SubmitShipmentConfirmationsRequest body) throws ApiException, LWAException {
-        okhttp3.Call call = submitShipmentConfirmationsValidateBeforeCall(body, null, null);
-        Type localVarReturnType = new TypeToken<SubmitShipmentConfirmationsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = submitShipmentConfirmationsValidateBeforeCall(body, null);
+        if (disableRateLimiting || submitShipmentConfirmationsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<SubmitShipmentConfirmationsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("submitShipmentConfirmations operation exceeds rate limit");
     }
 
     /**
@@ -1101,34 +1076,30 @@ public class VendorShippingApi {
             SubmitShipmentConfirmationsRequest body, final ApiCallback<SubmitShipmentConfirmationsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call =
-                submitShipmentConfirmationsValidateBeforeCall(body, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<SubmitShipmentConfirmationsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = submitShipmentConfirmationsValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || submitShipmentConfirmationsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<SubmitShipmentConfirmationsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("submitShipmentConfirmations operation exceeds rate limit");
     }
     /**
      * Build call for submitShipments
      *
      * @param body A request to submit shipment request. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call submitShipmentsCall(
-            SubmitShipments body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call submitShipmentsCall(
+            SubmitShipments body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
 
@@ -1150,17 +1121,6 @@ public class VendorShippingApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -1169,21 +1129,18 @@ public class VendorShippingApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call submitShipmentsValidateBeforeCall(
-            SubmitShipments body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            SubmitShipments body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
         if (body == null) {
             throw new ApiException("Missing the required parameter 'body' when calling submitShipments(Async)");
         }
 
-        return submitShipmentsCall(body, progressListener, progressRequestListener);
+        return submitShipmentsCall(body, progressRequestListener);
     }
 
     /**
@@ -1221,9 +1178,11 @@ public class VendorShippingApi {
      */
     public ApiResponse<SubmitShipmentConfirmationsResponse> submitShipmentsWithHttpInfo(SubmitShipments body)
             throws ApiException, LWAException {
-        okhttp3.Call call = submitShipmentsValidateBeforeCall(body, null, null);
-        Type localVarReturnType = new TypeToken<SubmitShipmentConfirmationsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = submitShipmentsValidateBeforeCall(body, null);
+        if (disableRateLimiting || submitShipmentsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<SubmitShipmentConfirmationsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("submitShipments operation exceeds rate limit");
     }
 
     /**
@@ -1245,18 +1204,18 @@ public class VendorShippingApi {
             SubmitShipments body, final ApiCallback<SubmitShipmentConfirmationsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = submitShipmentsValidateBeforeCall(body, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<SubmitShipmentConfirmationsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = submitShipmentsValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || submitShipmentsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<SubmitShipmentConfirmationsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("submitShipments operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -1264,7 +1223,7 @@ public class VendorShippingApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -1286,13 +1245,8 @@ public class VendorShippingApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -1315,10 +1269,11 @@ public class VendorShippingApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new VendorShippingApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new VendorShippingApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

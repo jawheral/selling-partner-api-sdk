@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,9 +29,9 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.feeds.v2021_06_30.CreateFeedDocumentResponse;
 import software.amazon.spapi.models.feeds.v2021_06_30.CreateFeedDocumentSpecification;
@@ -43,26 +43,47 @@ import software.amazon.spapi.models.feeds.v2021_06_30.GetFeedsResponse;
 
 public class FeedsApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public FeedsApi(ApiClient apiClient) {
+    public FeedsApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket cancelFeedBucket =
+            Bucket.builder().addLimit(config.getLimit("FeedsApi-cancelFeed")).build();
+
+    public final Bucket createFeedBucket =
+            Bucket.builder().addLimit(config.getLimit("FeedsApi-createFeed")).build();
+
+    public final Bucket createFeedDocumentBucket = Bucket.builder()
+            .addLimit(config.getLimit("FeedsApi-createFeedDocument"))
+            .build();
+
+    public final Bucket getFeedBucket =
+            Bucket.builder().addLimit(config.getLimit("FeedsApi-getFeed")).build();
+
+    public final Bucket getFeedDocumentBucket = Bucket.builder()
+            .addLimit(config.getLimit("FeedsApi-getFeedDocument"))
+            .build();
+
+    public final Bucket getFeedsBucket =
+            Bucket.builder().addLimit(config.getLimit("FeedsApi-getFeeds")).build();
 
     /**
      * Build call for cancelFeed
      *
      * @param feedId The identifier for the feed. This identifier is unique only in combination with a seller ID.
      *     (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call cancelFeedCall(
-            String feedId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call cancelFeedCall(
+            String feedId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
 
@@ -86,17 +107,6 @@ public class FeedsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "DELETE",
@@ -105,21 +115,18 @@ public class FeedsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call cancelFeedValidateBeforeCall(
-            String feedId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            String feedId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'feedId' is set
         if (feedId == null) {
             throw new ApiException("Missing the required parameter 'feedId' when calling cancelFeed(Async)");
         }
 
-        return cancelFeedCall(feedId, progressListener, progressRequestListener);
+        return cancelFeedCall(feedId, progressRequestListener);
     }
 
     /**
@@ -162,8 +169,10 @@ public class FeedsApi {
      * @throws LWAException If calls to fetch LWA access token fails
      */
     public ApiResponse<Void> cancelFeedWithHttpInfo(String feedId) throws ApiException, LWAException {
-        okhttp3.Call call = cancelFeedValidateBeforeCall(feedId, null, null);
-        return apiClient.execute(call);
+        okhttp3.Call call = cancelFeedValidateBeforeCall(feedId, null);
+        if (disableRateLimiting || cancelFeedBucket.tryConsume(1)) {
+            return apiClient.execute(call);
+        } else throw new ApiException.RateLimitExceeded("cancelFeed operation exceeds rate limit");
     }
 
     /**
@@ -188,32 +197,29 @@ public class FeedsApi {
     public okhttp3.Call cancelFeedAsync(String feedId, final ApiCallback<Void> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = cancelFeedValidateBeforeCall(feedId, progressListener, progressRequestListener);
-        apiClient.executeAsync(call, callback);
-        return call;
+        okhttp3.Call call = cancelFeedValidateBeforeCall(feedId, progressRequestListener);
+        if (disableRateLimiting || cancelFeedBucket.tryConsume(1)) {
+            apiClient.executeAsync(call, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("cancelFeed operation exceeds rate limit");
     }
     /**
      * Build call for createFeed
      *
      * @param body Information required to create the feed. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call createFeedCall(
-            CreateFeedSpecification body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call createFeedCall(
+            CreateFeedSpecification body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
 
@@ -235,17 +241,6 @@ public class FeedsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -254,21 +249,18 @@ public class FeedsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call createFeedValidateBeforeCall(
-            CreateFeedSpecification body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            CreateFeedSpecification body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
         if (body == null) {
             throw new ApiException("Missing the required parameter 'body' when calling createFeed(Async)");
         }
 
-        return createFeedCall(body, progressListener, progressRequestListener);
+        return createFeedCall(body, progressRequestListener);
     }
 
     /**
@@ -318,9 +310,11 @@ public class FeedsApi {
      */
     public ApiResponse<CreateFeedResponse> createFeedWithHttpInfo(CreateFeedSpecification body)
             throws ApiException, LWAException {
-        okhttp3.Call call = createFeedValidateBeforeCall(body, null, null);
-        Type localVarReturnType = new TypeToken<CreateFeedResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = createFeedValidateBeforeCall(body, null);
+        if (disableRateLimiting || createFeedBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<CreateFeedResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("createFeed operation exceeds rate limit");
     }
 
     /**
@@ -347,32 +341,30 @@ public class FeedsApi {
     public okhttp3.Call createFeedAsync(CreateFeedSpecification body, final ApiCallback<CreateFeedResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = createFeedValidateBeforeCall(body, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<CreateFeedResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = createFeedValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || createFeedBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<CreateFeedResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("createFeed operation exceeds rate limit");
     }
     /**
      * Build call for createFeedDocument
      *
      * @param body Specifies the content type for the createFeedDocument operation. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call createFeedDocumentCall(
+    private okhttp3.Call createFeedDocumentCall(
             CreateFeedDocumentSpecification body,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
@@ -395,17 +387,6 @@ public class FeedsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -414,13 +395,11 @@ public class FeedsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call createFeedDocumentValidateBeforeCall(
             CreateFeedDocumentSpecification body,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
@@ -428,7 +407,7 @@ public class FeedsApi {
             throw new ApiException("Missing the required parameter 'body' when calling createFeedDocument(Async)");
         }
 
-        return createFeedDocumentCall(body, progressListener, progressRequestListener);
+        return createFeedDocumentCall(body, progressRequestListener);
     }
 
     /**
@@ -473,9 +452,11 @@ public class FeedsApi {
      */
     public ApiResponse<CreateFeedDocumentResponse> createFeedDocumentWithHttpInfo(CreateFeedDocumentSpecification body)
             throws ApiException, LWAException {
-        okhttp3.Call call = createFeedDocumentValidateBeforeCall(body, null, null);
-        Type localVarReturnType = new TypeToken<CreateFeedDocumentResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = createFeedDocumentValidateBeforeCall(body, null);
+        if (disableRateLimiting || createFeedDocumentBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<CreateFeedDocumentResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("createFeedDocument operation exceeds rate limit");
     }
 
     /**
@@ -500,34 +481,31 @@ public class FeedsApi {
             CreateFeedDocumentSpecification body, final ApiCallback<CreateFeedDocumentResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = createFeedDocumentValidateBeforeCall(body, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<CreateFeedDocumentResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = createFeedDocumentValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || createFeedDocumentBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<CreateFeedDocumentResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("createFeedDocument operation exceeds rate limit");
     }
     /**
      * Build call for getFeed
      *
      * @param feedId The identifier for the feed. This identifier is unique only in combination with a seller ID.
      *     (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getFeedCall(
-            String feedId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call getFeedCall(
+            String feedId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
 
@@ -551,17 +529,6 @@ public class FeedsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -570,21 +537,18 @@ public class FeedsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call getFeedValidateBeforeCall(
-            String feedId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            String feedId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'feedId' is set
         if (feedId == null) {
             throw new ApiException("Missing the required parameter 'feedId' when calling getFeed(Async)");
         }
 
-        return getFeedCall(feedId, progressListener, progressRequestListener);
+        return getFeedCall(feedId, progressRequestListener);
     }
 
     /**
@@ -623,9 +587,11 @@ public class FeedsApi {
      * @throws LWAException If calls to fetch LWA access token fails
      */
     public ApiResponse<Feed> getFeedWithHttpInfo(String feedId) throws ApiException, LWAException {
-        okhttp3.Call call = getFeedValidateBeforeCall(feedId, null, null);
-        Type localVarReturnType = new TypeToken<Feed>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getFeedValidateBeforeCall(feedId, null);
+        if (disableRateLimiting || getFeedBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<Feed>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getFeed operation exceeds rate limit");
     }
 
     /**
@@ -647,33 +613,30 @@ public class FeedsApi {
     public okhttp3.Call getFeedAsync(String feedId, final ApiCallback<Feed> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = getFeedValidateBeforeCall(feedId, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<Feed>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = getFeedValidateBeforeCall(feedId, progressRequestListener);
+        if (disableRateLimiting || getFeedBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<Feed>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getFeed operation exceeds rate limit");
     }
     /**
      * Build call for getFeedDocument
      *
      * @param feedDocumentId The identifier of the feed document. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getFeedDocumentCall(
-            String feedDocumentId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call getFeedDocumentCall(
+            String feedDocumentId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
 
@@ -697,17 +660,6 @@ public class FeedsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -716,14 +668,11 @@ public class FeedsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call getFeedDocumentValidateBeforeCall(
-            String feedDocumentId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            String feedDocumentId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'feedDocumentId' is set
         if (feedDocumentId == null) {
@@ -731,7 +680,7 @@ public class FeedsApi {
                     "Missing the required parameter 'feedDocumentId' when calling getFeedDocument(Async)");
         }
 
-        return getFeedDocumentCall(feedDocumentId, progressListener, progressRequestListener);
+        return getFeedDocumentCall(feedDocumentId, progressRequestListener);
     }
 
     /**
@@ -769,9 +718,11 @@ public class FeedsApi {
      */
     public ApiResponse<FeedDocument> getFeedDocumentWithHttpInfo(String feedDocumentId)
             throws ApiException, LWAException {
-        okhttp3.Call call = getFeedDocumentValidateBeforeCall(feedDocumentId, null, null);
-        Type localVarReturnType = new TypeToken<FeedDocument>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getFeedDocumentValidateBeforeCall(feedDocumentId, null);
+        if (disableRateLimiting || getFeedDocumentBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<FeedDocument>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getFeedDocument operation exceeds rate limit");
     }
 
     /**
@@ -792,19 +743,18 @@ public class FeedsApi {
     public okhttp3.Call getFeedDocumentAsync(String feedDocumentId, final ApiCallback<FeedDocument> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call =
-                getFeedDocumentValidateBeforeCall(feedDocumentId, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<FeedDocument>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = getFeedDocumentValidateBeforeCall(feedDocumentId, progressRequestListener);
+        if (disableRateLimiting || getFeedDocumentBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<FeedDocument>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getFeedDocument operation exceeds rate limit");
     }
     /**
      * Build call for getFeeds
@@ -824,13 +774,12 @@ public class FeedsApi {
      *     number of results exceeds the specified pageSize value. To get the next page of results, call the getFeeds
      *     operation and include this token as the only parameter. Specifying nextToken with any other parameters will
      *     cause the request to fail. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getFeedsCall(
+    private okhttp3.Call getFeedsCall(
             List<String> feedTypes,
             List<String> marketplaceIds,
             Integer pageSize,
@@ -838,7 +787,6 @@ public class FeedsApi {
             OffsetDateTime createdSince,
             OffsetDateTime createdUntil,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -873,17 +821,6 @@ public class FeedsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -892,7 +829,6 @@ public class FeedsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -904,7 +840,6 @@ public class FeedsApi {
             OffsetDateTime createdSince,
             OffsetDateTime createdUntil,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
 
@@ -916,7 +851,6 @@ public class FeedsApi {
                 createdSince,
                 createdUntil,
                 nextToken,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -1000,17 +934,11 @@ public class FeedsApi {
             String nextToken)
             throws ApiException, LWAException {
         okhttp3.Call call = getFeedsValidateBeforeCall(
-                feedTypes,
-                marketplaceIds,
-                pageSize,
-                processingStatuses,
-                createdSince,
-                createdUntil,
-                nextToken,
-                null,
-                null);
-        Type localVarReturnType = new TypeToken<GetFeedsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                feedTypes, marketplaceIds, pageSize, processingStatuses, createdSince, createdUntil, nextToken, null);
+        if (disableRateLimiting || getFeedsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetFeedsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getFeeds operation exceeds rate limit");
     }
 
     /**
@@ -1053,11 +981,9 @@ public class FeedsApi {
             final ApiCallback<GetFeedsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -1069,11 +995,12 @@ public class FeedsApi {
                 createdSince,
                 createdUntil,
                 nextToken,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetFeedsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || getFeedsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetFeedsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getFeeds operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -1081,7 +1008,7 @@ public class FeedsApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -1103,13 +1030,8 @@ public class FeedsApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -1132,10 +1054,11 @@ public class FeedsApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new FeedsApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new FeedsApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

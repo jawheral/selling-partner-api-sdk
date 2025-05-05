@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,9 +29,9 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.fulfillment.inbound.v0.GetBillOfLadingResponse;
 import software.amazon.spapi.models.fulfillment.inbound.v0.GetLabelsResponse;
@@ -41,26 +41,51 @@ import software.amazon.spapi.models.fulfillment.inbound.v0.GetShipmentsResponse;
 
 public class FbaInboundApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public FbaInboundApi(ApiClient apiClient) {
+    public FbaInboundApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket getBillOfLadingBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInboundApi-getBillOfLading"))
+            .build();
+
+    public final Bucket getLabelsBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInboundApi-getLabels"))
+            .build();
+
+    public final Bucket getPrepInstructionsBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInboundApi-getPrepInstructions"))
+            .build();
+
+    public final Bucket getShipmentItemsBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInboundApi-getShipmentItems"))
+            .build();
+
+    public final Bucket getShipmentItemsByShipmentIdBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInboundApi-getShipmentItemsByShipmentId"))
+            .build();
+
+    public final Bucket getShipmentsBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInboundApi-getShipments"))
+            .build();
 
     /**
      * Build call for getBillOfLading
      *
      * @param shipmentId A shipment identifier originally returned by the createInboundShipmentPlan operation.
      *     (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getBillOfLadingCall(
-            String shipmentId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call getBillOfLadingCall(
+            String shipmentId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
 
@@ -84,17 +109,6 @@ public class FbaInboundApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -103,21 +117,18 @@ public class FbaInboundApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call getBillOfLadingValidateBeforeCall(
-            String shipmentId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            String shipmentId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'shipmentId' is set
         if (shipmentId == null) {
             throw new ApiException("Missing the required parameter 'shipmentId' when calling getBillOfLading(Async)");
         }
 
-        return getBillOfLadingCall(shipmentId, progressListener, progressRequestListener);
+        return getBillOfLadingCall(shipmentId, progressRequestListener);
     }
 
     /**
@@ -159,9 +170,11 @@ public class FbaInboundApi {
      */
     public ApiResponse<GetBillOfLadingResponse> getBillOfLadingWithHttpInfo(String shipmentId)
             throws ApiException, LWAException {
-        okhttp3.Call call = getBillOfLadingValidateBeforeCall(shipmentId, null, null);
-        Type localVarReturnType = new TypeToken<GetBillOfLadingResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getBillOfLadingValidateBeforeCall(shipmentId, null);
+        if (disableRateLimiting || getBillOfLadingBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetBillOfLadingResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getBillOfLading operation exceeds rate limit");
     }
 
     /**
@@ -184,18 +197,18 @@ public class FbaInboundApi {
     public okhttp3.Call getBillOfLadingAsync(String shipmentId, final ApiCallback<GetBillOfLadingResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = getBillOfLadingValidateBeforeCall(shipmentId, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetBillOfLadingResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = getBillOfLadingValidateBeforeCall(shipmentId, progressRequestListener);
+        if (disableRateLimiting || getBillOfLadingBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetBillOfLadingResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getBillOfLading operation exceeds rate limit");
     }
     /**
      * Build call for getLabels
@@ -221,13 +234,12 @@ public class FbaInboundApi {
      *     parameter for Non-Partnered LTL Shipments. Max value:1000. (optional)
      * @param pageStartIndex The page start index for paginating through the total packages&#x27; labels. This is a
      *     required parameter for Non-Partnered LTL Shipments. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getLabelsCall(
+    private okhttp3.Call getLabelsCall(
             String shipmentId,
             String pageType,
             String labelType,
@@ -236,7 +248,6 @@ public class FbaInboundApi {
             Integer numberOfPallets,
             Integer pageSize,
             Integer pageStartIndex,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -273,17 +284,6 @@ public class FbaInboundApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -292,7 +292,6 @@ public class FbaInboundApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -305,7 +304,6 @@ public class FbaInboundApi {
             Integer numberOfPallets,
             Integer pageSize,
             Integer pageStartIndex,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'shipmentId' is set
@@ -330,7 +328,6 @@ public class FbaInboundApi {
                 numberOfPallets,
                 pageSize,
                 pageStartIndex,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -443,10 +440,11 @@ public class FbaInboundApi {
                 numberOfPallets,
                 pageSize,
                 pageStartIndex,
-                null,
                 null);
-        Type localVarReturnType = new TypeToken<GetLabelsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        if (disableRateLimiting || getLabelsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetLabelsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getLabels operation exceeds rate limit");
     }
 
     /**
@@ -496,11 +494,9 @@ public class FbaInboundApi {
             final ApiCallback<GetLabelsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -513,11 +509,12 @@ public class FbaInboundApi {
                 numberOfPallets,
                 pageSize,
                 pageStartIndex,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetLabelsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || getLabelsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetLabelsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getLabels operation exceeds rate limit");
     }
     /**
      * Build call for getPrepInstructions
@@ -536,17 +533,15 @@ public class FbaInboundApi {
      *     least one of the marketplaces that the seller participates in is returned in the InvalidASINList property in
      *     the response. You can find out which marketplaces a seller participates in by calling the
      *     getMarketplaceParticipations operation in the Selling Partner API for Sellers. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getPrepInstructionsCall(
+    private okhttp3.Call getPrepInstructionsCall(
             String shipToCountryCode,
             List<String> sellerSKUList,
             List<String> asINList,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -576,17 +571,6 @@ public class FbaInboundApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -595,7 +579,6 @@ public class FbaInboundApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -603,7 +586,6 @@ public class FbaInboundApi {
             String shipToCountryCode,
             List<String> sellerSKUList,
             List<String> asINList,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'shipToCountryCode' is set
@@ -612,8 +594,7 @@ public class FbaInboundApi {
                     "Missing the required parameter 'shipToCountryCode' when calling getPrepInstructions(Async)");
         }
 
-        return getPrepInstructionsCall(
-                shipToCountryCode, sellerSKUList, asINList, progressListener, progressRequestListener);
+        return getPrepInstructionsCall(shipToCountryCode, sellerSKUList, asINList, progressRequestListener);
     }
 
     /**
@@ -681,10 +662,11 @@ public class FbaInboundApi {
     public ApiResponse<GetPrepInstructionsResponse> getPrepInstructionsWithHttpInfo(
             String shipToCountryCode, List<String> sellerSKUList, List<String> asINList)
             throws ApiException, LWAException {
-        okhttp3.Call call =
-                getPrepInstructionsValidateBeforeCall(shipToCountryCode, sellerSKUList, asINList, null, null);
-        Type localVarReturnType = new TypeToken<GetPrepInstructionsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getPrepInstructionsValidateBeforeCall(shipToCountryCode, sellerSKUList, asINList, null);
+        if (disableRateLimiting || getPrepInstructionsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetPrepInstructionsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getPrepInstructions operation exceeds rate limit");
     }
 
     /**
@@ -722,19 +704,19 @@ public class FbaInboundApi {
             final ApiCallback<GetPrepInstructionsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = getPrepInstructionsValidateBeforeCall(
-                shipToCountryCode, sellerSKUList, asINList, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetPrepInstructionsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                shipToCountryCode, sellerSKUList, asINList, progressRequestListener);
+        if (disableRateLimiting || getPrepInstructionsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetPrepInstructionsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getPrepInstructions operation exceeds rate limit");
     }
     /**
      * Build call for getShipmentItems
@@ -749,19 +731,17 @@ public class FbaInboundApi {
      * @param lastUpdatedBefore A date used for selecting inbound shipment items that were last updated before (or at) a
      *     specified time. The selection includes updates made by Amazon and by the seller. (optional)
      * @param nextToken A string token returned in the response to your previous request. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getShipmentItemsCall(
+    private okhttp3.Call getShipmentItemsCall(
             String queryType,
             String marketplaceId,
             OffsetDateTime lastUpdatedAfter,
             OffsetDateTime lastUpdatedBefore,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -793,17 +773,6 @@ public class FbaInboundApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -812,7 +781,6 @@ public class FbaInboundApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -822,7 +790,6 @@ public class FbaInboundApi {
             OffsetDateTime lastUpdatedAfter,
             OffsetDateTime lastUpdatedBefore,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'queryType' is set
@@ -836,13 +803,7 @@ public class FbaInboundApi {
         }
 
         return getShipmentItemsCall(
-                queryType,
-                marketplaceId,
-                lastUpdatedAfter,
-                lastUpdatedBefore,
-                nextToken,
-                progressListener,
-                progressRequestListener);
+                queryType, marketplaceId, lastUpdatedAfter, lastUpdatedBefore, nextToken, progressRequestListener);
     }
 
     /**
@@ -911,9 +872,11 @@ public class FbaInboundApi {
             String nextToken)
             throws ApiException, LWAException {
         okhttp3.Call call = getShipmentItemsValidateBeforeCall(
-                queryType, marketplaceId, lastUpdatedAfter, lastUpdatedBefore, nextToken, null, null);
-        Type localVarReturnType = new TypeToken<GetShipmentItemsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                queryType, marketplaceId, lastUpdatedAfter, lastUpdatedBefore, nextToken, null);
+        if (disableRateLimiting || getShipmentItemsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentItemsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getShipmentItems operation exceeds rate limit");
     }
 
     /**
@@ -949,41 +912,33 @@ public class FbaInboundApi {
             final ApiCallback<GetShipmentItemsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = getShipmentItemsValidateBeforeCall(
-                queryType,
-                marketplaceId,
-                lastUpdatedAfter,
-                lastUpdatedBefore,
-                nextToken,
-                progressListener,
-                progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetShipmentItemsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                queryType, marketplaceId, lastUpdatedAfter, lastUpdatedBefore, nextToken, progressRequestListener);
+        if (disableRateLimiting || getShipmentItemsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentItemsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getShipmentItems operation exceeds rate limit");
     }
     /**
      * Build call for getShipmentItemsByShipmentId
      *
      * @param shipmentId A shipment identifier used for selecting items in a specific inbound shipment. (required)
      * @param marketplaceId Deprecated. Do not use. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getShipmentItemsByShipmentIdCall(
+    private okhttp3.Call getShipmentItemsByShipmentIdCall(
             String shipmentId,
             String marketplaceId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -1010,17 +965,6 @@ public class FbaInboundApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -1029,14 +973,12 @@ public class FbaInboundApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call getShipmentItemsByShipmentIdValidateBeforeCall(
             String shipmentId,
             String marketplaceId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'shipmentId' is set
@@ -1045,7 +987,7 @@ public class FbaInboundApi {
                     "Missing the required parameter 'shipmentId' when calling getShipmentItemsByShipmentId(Async)");
         }
 
-        return getShipmentItemsByShipmentIdCall(shipmentId, marketplaceId, progressListener, progressRequestListener);
+        return getShipmentItemsByShipmentIdCall(shipmentId, marketplaceId, progressRequestListener);
     }
 
     /**
@@ -1085,9 +1027,11 @@ public class FbaInboundApi {
      */
     public ApiResponse<GetShipmentItemsResponse> getShipmentItemsByShipmentIdWithHttpInfo(
             String shipmentId, String marketplaceId) throws ApiException, LWAException {
-        okhttp3.Call call = getShipmentItemsByShipmentIdValidateBeforeCall(shipmentId, marketplaceId, null, null);
-        Type localVarReturnType = new TypeToken<GetShipmentItemsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getShipmentItemsByShipmentIdValidateBeforeCall(shipmentId, marketplaceId, null);
+        if (disableRateLimiting || getShipmentItemsByShipmentIdBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentItemsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getShipmentItemsByShipmentId operation exceeds rate limit");
     }
 
     /**
@@ -1110,19 +1054,19 @@ public class FbaInboundApi {
             String shipmentId, String marketplaceId, final ApiCallback<GetShipmentItemsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = getShipmentItemsByShipmentIdValidateBeforeCall(
-                shipmentId, marketplaceId, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetShipmentItemsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call =
+                getShipmentItemsByShipmentIdValidateBeforeCall(shipmentId, marketplaceId, progressRequestListener);
+        if (disableRateLimiting || getShipmentItemsByShipmentIdBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentItemsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getShipmentItemsByShipmentId operation exceeds rate limit");
     }
     /**
      * Build call for getShipments
@@ -1143,13 +1087,12 @@ public class FbaInboundApi {
      * @param lastUpdatedBefore A date used for selecting inbound shipments that were last updated before (or at) a
      *     specified time. The selection includes updates made by Amazon and by the seller. (optional)
      * @param nextToken A string token returned in the response to your previous request. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getShipmentsCall(
+    private okhttp3.Call getShipmentsCall(
             String queryType,
             String marketplaceId,
             List<String> shipmentStatusList,
@@ -1157,7 +1100,6 @@ public class FbaInboundApi {
             OffsetDateTime lastUpdatedAfter,
             OffsetDateTime lastUpdatedBefore,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -1194,17 +1136,6 @@ public class FbaInboundApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -1213,7 +1144,6 @@ public class FbaInboundApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -1225,7 +1155,6 @@ public class FbaInboundApi {
             OffsetDateTime lastUpdatedAfter,
             OffsetDateTime lastUpdatedBefore,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'queryType' is set
@@ -1245,7 +1174,6 @@ public class FbaInboundApi {
                 lastUpdatedAfter,
                 lastUpdatedBefore,
                 nextToken,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -1344,10 +1272,11 @@ public class FbaInboundApi {
                 lastUpdatedAfter,
                 lastUpdatedBefore,
                 nextToken,
-                null,
                 null);
-        Type localVarReturnType = new TypeToken<GetShipmentsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        if (disableRateLimiting || getShipmentsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getShipments operation exceeds rate limit");
     }
 
     /**
@@ -1391,11 +1320,9 @@ public class FbaInboundApi {
             final ApiCallback<GetShipmentsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -1407,11 +1334,12 @@ public class FbaInboundApi {
                 lastUpdatedAfter,
                 lastUpdatedBefore,
                 nextToken,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetShipmentsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || getShipmentsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetShipmentsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getShipments operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -1419,7 +1347,7 @@ public class FbaInboundApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -1441,13 +1369,8 @@ public class FbaInboundApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -1470,10 +1393,11 @@ public class FbaInboundApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new FbaInboundApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new FbaInboundApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

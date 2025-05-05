@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,19 +28,31 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.catalogitems.v2022_04_01.Item;
 import software.amazon.spapi.models.catalogitems.v2022_04_01.ItemSearchResults;
 
 public class CatalogApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public CatalogApi(ApiClient apiClient) {
+    public CatalogApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket getCatalogItemBucket = Bucket.builder()
+            .addLimit(config.getLimit("CatalogApi-getCatalogItem"))
+            .build();
+
+    public final Bucket searchCatalogItemsBucket = Bucket.builder()
+            .addLimit(config.getLimit("CatalogApi-searchCatalogItems"))
+            .build();
 
     /**
      * Build call for getCatalogItem
@@ -52,18 +64,16 @@ public class CatalogApi {
      * @param includedData A comma-delimited list of datasets to include in the response. (optional)
      * @param locale The locale for which you want to retrieve localized summaries. Defaults to the primary locale of
      *     the marketplace. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getCatalogItemCall(
+    private okhttp3.Call getCatalogItemCall(
             String asin,
             List<String> marketplaceIds,
             List<String> includedData,
             String locale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -93,17 +103,6 @@ public class CatalogApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -112,7 +111,6 @@ public class CatalogApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -121,7 +119,6 @@ public class CatalogApi {
             List<String> marketplaceIds,
             List<String> includedData,
             String locale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'asin' is set
@@ -134,8 +131,7 @@ public class CatalogApi {
                     "Missing the required parameter 'marketplaceIds' when calling getCatalogItem(Async)");
         }
 
-        return getCatalogItemCall(
-                asin, marketplaceIds, includedData, locale, progressListener, progressRequestListener);
+        return getCatalogItemCall(asin, marketplaceIds, includedData, locale, progressRequestListener);
     }
 
     /**
@@ -185,9 +181,11 @@ public class CatalogApi {
     public ApiResponse<Item> getCatalogItemWithHttpInfo(
             String asin, List<String> marketplaceIds, List<String> includedData, String locale)
             throws ApiException, LWAException {
-        okhttp3.Call call = getCatalogItemValidateBeforeCall(asin, marketplaceIds, includedData, locale, null, null);
-        Type localVarReturnType = new TypeToken<Item>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getCatalogItemValidateBeforeCall(asin, marketplaceIds, includedData, locale, null);
+        if (disableRateLimiting || getCatalogItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<Item>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getCatalogItem operation exceeds rate limit");
     }
 
     /**
@@ -218,19 +216,19 @@ public class CatalogApi {
             final ApiCallback<Item> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = getCatalogItemValidateBeforeCall(
-                asin, marketplaceIds, includedData, locale, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<Item>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call =
+                getCatalogItemValidateBeforeCall(asin, marketplaceIds, includedData, locale, progressRequestListener);
+        if (disableRateLimiting || getCatalogItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<Item>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getCatalogItem operation exceeds rate limit");
     }
     /**
      * Build call for searchCatalogItems
@@ -260,13 +258,12 @@ public class CatalogApi {
      * @param keywordsLocale The language of the keywords that are included in queries based on &#x60;keywords&#x60;.
      *     Defaults to the primary locale of the marketplace. **Note:** Cannot be used with &#x60;identifiers&#x60;.
      *     (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call searchCatalogItemsCall(
+    private okhttp3.Call searchCatalogItemsCall(
             List<String> marketplaceIds,
             List<String> identifiers,
             String identifiersType,
@@ -279,7 +276,6 @@ public class CatalogApi {
             Integer pageSize,
             String pageToken,
             String keywordsLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -324,17 +320,6 @@ public class CatalogApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -343,7 +328,6 @@ public class CatalogApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -360,7 +344,6 @@ public class CatalogApi {
             Integer pageSize,
             String pageToken,
             String keywordsLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'marketplaceIds' is set
@@ -382,7 +365,6 @@ public class CatalogApi {
                 pageSize,
                 pageToken,
                 keywordsLocale,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -519,10 +501,11 @@ public class CatalogApi {
                 pageSize,
                 pageToken,
                 keywordsLocale,
-                null,
                 null);
-        Type localVarReturnType = new TypeToken<ItemSearchResults>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        if (disableRateLimiting || searchCatalogItemsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ItemSearchResults>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("searchCatalogItems operation exceeds rate limit");
     }
 
     /**
@@ -580,11 +563,9 @@ public class CatalogApi {
             final ApiCallback<ItemSearchResults> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -601,11 +582,12 @@ public class CatalogApi {
                 pageSize,
                 pageToken,
                 keywordsLocale,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<ItemSearchResults>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || searchCatalogItemsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ItemSearchResults>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("searchCatalogItems operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -613,7 +595,7 @@ public class CatalogApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -635,13 +617,8 @@ public class CatalogApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -664,10 +641,11 @@ public class CatalogApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new CatalogApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new CatalogApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

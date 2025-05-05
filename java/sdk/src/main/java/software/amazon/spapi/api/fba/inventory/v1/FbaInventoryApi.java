@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,9 +29,9 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.fba.inventory.v1.AddInventoryRequest;
 import software.amazon.spapi.models.fba.inventory.v1.AddInventoryResponse;
@@ -42,26 +42,44 @@ import software.amazon.spapi.models.fba.inventory.v1.GetInventorySummariesRespon
 
 public class FbaInventoryApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public FbaInventoryApi(ApiClient apiClient) {
+    public FbaInventoryApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket addInventoryBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInventoryApi-addInventory"))
+            .build();
+
+    public final Bucket createInventoryItemBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInventoryApi-createInventoryItem"))
+            .build();
+
+    public final Bucket deleteInventoryItemBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInventoryApi-deleteInventoryItem"))
+            .build();
+
+    public final Bucket getInventorySummariesBucket = Bucket.builder()
+            .addLimit(config.getLimit("FbaInventoryApi-getInventorySummaries"))
+            .build();
 
     /**
      * Build call for addInventory
      *
      * @param body List of items to add to Sandbox inventory. (required)
      * @param xAmznIdempotencyToken A unique token/requestId provided with each call to ensure idempotency. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call addInventoryCall(
+    private okhttp3.Call addInventoryCall(
             AddInventoryRequest body,
             String xAmznIdempotencyToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
@@ -86,17 +104,6 @@ public class FbaInventoryApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -105,14 +112,12 @@ public class FbaInventoryApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call addInventoryValidateBeforeCall(
             AddInventoryRequest body,
             String xAmznIdempotencyToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
@@ -125,7 +130,7 @@ public class FbaInventoryApi {
                     "Missing the required parameter 'xAmznIdempotencyToken' when calling addInventory(Async)");
         }
 
-        return addInventoryCall(body, xAmznIdempotencyToken, progressListener, progressRequestListener);
+        return addInventoryCall(body, xAmznIdempotencyToken, progressRequestListener);
     }
 
     /**
@@ -160,9 +165,11 @@ public class FbaInventoryApi {
      */
     public ApiResponse<AddInventoryResponse> addInventoryWithHttpInfo(
             AddInventoryRequest body, String xAmznIdempotencyToken) throws ApiException, LWAException {
-        okhttp3.Call call = addInventoryValidateBeforeCall(body, xAmznIdempotencyToken, null, null);
-        Type localVarReturnType = new TypeToken<AddInventoryResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = addInventoryValidateBeforeCall(body, xAmznIdempotencyToken, null);
+        if (disableRateLimiting || addInventoryBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<AddInventoryResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("addInventory operation exceeds rate limit");
     }
 
     /**
@@ -182,34 +189,30 @@ public class FbaInventoryApi {
             AddInventoryRequest body, String xAmznIdempotencyToken, final ApiCallback<AddInventoryResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call =
-                addInventoryValidateBeforeCall(body, xAmznIdempotencyToken, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<AddInventoryResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = addInventoryValidateBeforeCall(body, xAmznIdempotencyToken, progressRequestListener);
+        if (disableRateLimiting || addInventoryBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<AddInventoryResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("addInventory operation exceeds rate limit");
     }
     /**
      * Build call for createInventoryItem
      *
      * @param body CreateInventoryItem Request Body Parameter. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call createInventoryItemCall(
-            CreateInventoryItemRequest body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call createInventoryItemCall(
+            CreateInventoryItemRequest body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
 
@@ -231,17 +234,6 @@ public class FbaInventoryApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -250,21 +242,18 @@ public class FbaInventoryApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call createInventoryItemValidateBeforeCall(
-            CreateInventoryItemRequest body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            CreateInventoryItemRequest body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
         if (body == null) {
             throw new ApiException("Missing the required parameter 'body' when calling createInventoryItem(Async)");
         }
 
-        return createInventoryItemCall(body, progressListener, progressRequestListener);
+        return createInventoryItemCall(body, progressRequestListener);
     }
 
     /**
@@ -295,9 +284,11 @@ public class FbaInventoryApi {
      */
     public ApiResponse<CreateInventoryItemResponse> createInventoryItemWithHttpInfo(CreateInventoryItemRequest body)
             throws ApiException, LWAException {
-        okhttp3.Call call = createInventoryItemValidateBeforeCall(body, null, null);
-        Type localVarReturnType = new TypeToken<CreateInventoryItemResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = createInventoryItemValidateBeforeCall(body, null);
+        if (disableRateLimiting || createInventoryItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<CreateInventoryItemResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("createInventoryItem operation exceeds rate limit");
     }
 
     /**
@@ -315,34 +306,32 @@ public class FbaInventoryApi {
             CreateInventoryItemRequest body, final ApiCallback<CreateInventoryItemResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = createInventoryItemValidateBeforeCall(body, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<CreateInventoryItemResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = createInventoryItemValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || createInventoryItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<CreateInventoryItemResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("createInventoryItem operation exceeds rate limit");
     }
     /**
      * Build call for deleteInventoryItem
      *
      * @param sellerSku A single seller SKU used for querying the specified seller SKU inventory summaries. (required)
      * @param marketplaceId The marketplace ID for the marketplace for which the sellerSku is to be deleted. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call deleteInventoryItemCall(
+    private okhttp3.Call deleteInventoryItemCall(
             String sellerSku,
             String marketplaceId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -369,17 +358,6 @@ public class FbaInventoryApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "DELETE",
@@ -388,14 +366,12 @@ public class FbaInventoryApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call deleteInventoryItemValidateBeforeCall(
             String sellerSku,
             String marketplaceId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'sellerSku' is set
@@ -409,7 +385,7 @@ public class FbaInventoryApi {
                     "Missing the required parameter 'marketplaceId' when calling deleteInventoryItem(Async)");
         }
 
-        return deleteInventoryItemCall(sellerSku, marketplaceId, progressListener, progressRequestListener);
+        return deleteInventoryItemCall(sellerSku, marketplaceId, progressRequestListener);
     }
 
     /**
@@ -442,9 +418,11 @@ public class FbaInventoryApi {
      */
     public ApiResponse<DeleteInventoryItemResponse> deleteInventoryItemWithHttpInfo(
             String sellerSku, String marketplaceId) throws ApiException, LWAException {
-        okhttp3.Call call = deleteInventoryItemValidateBeforeCall(sellerSku, marketplaceId, null, null);
-        Type localVarReturnType = new TypeToken<DeleteInventoryItemResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = deleteInventoryItemValidateBeforeCall(sellerSku, marketplaceId, null);
+        if (disableRateLimiting || deleteInventoryItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<DeleteInventoryItemResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("deleteInventoryItem operation exceeds rate limit");
     }
 
     /**
@@ -463,19 +441,18 @@ public class FbaInventoryApi {
             String sellerSku, String marketplaceId, final ApiCallback<DeleteInventoryItemResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = deleteInventoryItemValidateBeforeCall(
-                sellerSku, marketplaceId, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<DeleteInventoryItemResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = deleteInventoryItemValidateBeforeCall(sellerSku, marketplaceId, progressRequestListener);
+        if (disableRateLimiting || deleteInventoryItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<DeleteInventoryItemResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("deleteInventoryItem operation exceeds rate limit");
     }
     /**
      * Build call for getInventorySummaries
@@ -494,13 +471,12 @@ public class FbaInventoryApi {
      * @param sellerSku A single seller SKU used for querying the specified seller SKU inventory summaries. (optional)
      * @param nextToken String token returned in the response of your previous request. The string token will expire 30
      *     seconds after being created. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getInventorySummariesCall(
+    private okhttp3.Call getInventorySummariesCall(
             String granularityType,
             String granularityId,
             List<String> marketplaceIds,
@@ -509,7 +485,6 @@ public class FbaInventoryApi {
             List<String> sellerSkus,
             String sellerSku,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -546,17 +521,6 @@ public class FbaInventoryApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -565,7 +529,6 @@ public class FbaInventoryApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -578,7 +541,6 @@ public class FbaInventoryApi {
             List<String> sellerSkus,
             String sellerSku,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'granularityType' is set
@@ -606,7 +568,6 @@ public class FbaInventoryApi {
                 sellerSkus,
                 sellerSku,
                 nextToken,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -723,10 +684,11 @@ public class FbaInventoryApi {
                 sellerSkus,
                 sellerSku,
                 nextToken,
-                null,
                 null);
-        Type localVarReturnType = new TypeToken<GetInventorySummariesResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        if (disableRateLimiting || getInventorySummariesBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetInventorySummariesResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getInventorySummaries operation exceeds rate limit");
     }
 
     /**
@@ -779,11 +741,9 @@ public class FbaInventoryApi {
             final ApiCallback<GetInventorySummariesResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -796,11 +756,12 @@ public class FbaInventoryApi {
                 sellerSkus,
                 sellerSku,
                 nextToken,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetInventorySummariesResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || getInventorySummariesBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetInventorySummariesResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getInventorySummaries operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -808,7 +769,7 @@ public class FbaInventoryApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -830,13 +791,8 @@ public class FbaInventoryApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -859,10 +815,11 @@ public class FbaInventoryApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new FbaInventoryApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new FbaInventoryApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

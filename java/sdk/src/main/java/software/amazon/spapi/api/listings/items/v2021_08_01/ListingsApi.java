@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,9 +29,9 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.listings.items.v2021_08_01.Item;
 import software.amazon.spapi.models.listings.items.v2021_08_01.ItemSearchResults;
@@ -41,10 +41,34 @@ import software.amazon.spapi.models.listings.items.v2021_08_01.ListingsItemSubmi
 
 public class ListingsApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public ListingsApi(ApiClient apiClient) {
+    public ListingsApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket deleteListingsItemBucket = Bucket.builder()
+            .addLimit(config.getLimit("ListingsApi-deleteListingsItem"))
+            .build();
+
+    public final Bucket getListingsItemBucket = Bucket.builder()
+            .addLimit(config.getLimit("ListingsApi-getListingsItem"))
+            .build();
+
+    public final Bucket patchListingsItemBucket = Bucket.builder()
+            .addLimit(config.getLimit("ListingsApi-patchListingsItem"))
+            .build();
+
+    public final Bucket putListingsItemBucket = Bucket.builder()
+            .addLimit(config.getLimit("ListingsApi-putListingsItem"))
+            .build();
+
+    public final Bucket searchListingsItemsBucket = Bucket.builder()
+            .addLimit(config.getLimit("ListingsApi-searchListingsItems"))
+            .build();
 
     /**
      * Build call for deleteListingsItem
@@ -55,18 +79,16 @@ public class ListingsApi {
      * @param issueLocale A locale for localization of issues. When not provided, the default language code of the first
      *     marketplace is used. Examples: &#x60;en_US&#x60;, &#x60;fr_CA&#x60;, &#x60;fr_FR&#x60;. Localized messages
      *     default to &#x60;en_US&#x60; when a localization is not available in the specified locale. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call deleteListingsItemCall(
+    private okhttp3.Call deleteListingsItemCall(
             String sellerId,
             String sku,
             List<String> marketplaceIds,
             String issueLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -95,17 +117,6 @@ public class ListingsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "DELETE",
@@ -114,7 +125,6 @@ public class ListingsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -123,7 +133,6 @@ public class ListingsApi {
             String sku,
             List<String> marketplaceIds,
             String issueLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'sellerId' is set
@@ -140,8 +149,7 @@ public class ListingsApi {
                     "Missing the required parameter 'marketplaceIds' when calling deleteListingsItem(Async)");
         }
 
-        return deleteListingsItemCall(
-                sellerId, sku, marketplaceIds, issueLocale, progressListener, progressRequestListener);
+        return deleteListingsItemCall(sellerId, sku, marketplaceIds, issueLocale, progressRequestListener);
     }
 
     /**
@@ -197,10 +205,11 @@ public class ListingsApi {
     public ApiResponse<ListingsItemSubmissionResponse> deleteListingsItemWithHttpInfo(
             String sellerId, String sku, List<String> marketplaceIds, String issueLocale)
             throws ApiException, LWAException {
-        okhttp3.Call call =
-                deleteListingsItemValidateBeforeCall(sellerId, sku, marketplaceIds, issueLocale, null, null);
-        Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = deleteListingsItemValidateBeforeCall(sellerId, sku, marketplaceIds, issueLocale, null);
+        if (disableRateLimiting || deleteListingsItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("deleteListingsItem operation exceeds rate limit");
     }
 
     /**
@@ -233,19 +242,19 @@ public class ListingsApi {
             final ApiCallback<ListingsItemSubmissionResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = deleteListingsItemValidateBeforeCall(
-                sellerId, sku, marketplaceIds, issueLocale, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                sellerId, sku, marketplaceIds, issueLocale, progressRequestListener);
+        if (disableRateLimiting || deleteListingsItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("deleteListingsItem operation exceeds rate limit");
     }
     /**
      * Build call for getListingsItem
@@ -258,19 +267,17 @@ public class ListingsApi {
      *     default to &#x60;en_US&#x60; when a localization is not available in the specified locale. (optional)
      * @param includedData A comma-delimited list of data sets to include in the response. Default:
      *     &#x60;summaries&#x60;. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getListingsItemCall(
+    private okhttp3.Call getListingsItemCall(
             String sellerId,
             String sku,
             List<String> marketplaceIds,
             String issueLocale,
             List<String> includedData,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -301,17 +308,6 @@ public class ListingsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -320,7 +316,6 @@ public class ListingsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -330,7 +325,6 @@ public class ListingsApi {
             List<String> marketplaceIds,
             String issueLocale,
             List<String> includedData,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'sellerId' is set
@@ -347,8 +341,7 @@ public class ListingsApi {
                     "Missing the required parameter 'marketplaceIds' when calling getListingsItem(Async)");
         }
 
-        return getListingsItemCall(
-                sellerId, sku, marketplaceIds, issueLocale, includedData, progressListener, progressRequestListener);
+        return getListingsItemCall(sellerId, sku, marketplaceIds, issueLocale, includedData, progressRequestListener);
     }
 
     /**
@@ -408,9 +401,11 @@ public class ListingsApi {
             String sellerId, String sku, List<String> marketplaceIds, String issueLocale, List<String> includedData)
             throws ApiException, LWAException {
         okhttp3.Call call =
-                getListingsItemValidateBeforeCall(sellerId, sku, marketplaceIds, issueLocale, includedData, null, null);
-        Type localVarReturnType = new TypeToken<Item>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                getListingsItemValidateBeforeCall(sellerId, sku, marketplaceIds, issueLocale, includedData, null);
+        if (disableRateLimiting || getListingsItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<Item>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getListingsItem operation exceeds rate limit");
     }
 
     /**
@@ -447,19 +442,19 @@ public class ListingsApi {
             final ApiCallback<Item> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = getListingsItemValidateBeforeCall(
-                sellerId, sku, marketplaceIds, issueLocale, includedData, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<Item>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                sellerId, sku, marketplaceIds, issueLocale, includedData, progressRequestListener);
+        if (disableRateLimiting || getListingsItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<Item>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getListingsItem operation exceeds rate limit");
     }
     /**
      * Build call for patchListingsItem
@@ -474,13 +469,12 @@ public class ListingsApi {
      * @param issueLocale A locale for localization of issues. When not provided, the default language code of the first
      *     marketplace is used. Examples: &#x60;en_US&#x60;, &#x60;fr_CA&#x60;, &#x60;fr_FR&#x60;. Localized messages
      *     default to &#x60;en_US&#x60; when a localization is not available in the specified locale. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call patchListingsItemCall(
+    private okhttp3.Call patchListingsItemCall(
             ListingsItemPatchRequest body,
             String sellerId,
             String sku,
@@ -488,7 +482,6 @@ public class ListingsApi {
             List<String> includedData,
             String mode,
             String issueLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
@@ -519,17 +512,6 @@ public class ListingsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "PATCH",
@@ -538,7 +520,6 @@ public class ListingsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -550,7 +531,6 @@ public class ListingsApi {
             List<String> includedData,
             String mode,
             String issueLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
@@ -572,15 +552,7 @@ public class ListingsApi {
         }
 
         return patchListingsItemCall(
-                body,
-                sellerId,
-                sku,
-                marketplaceIds,
-                includedData,
-                mode,
-                issueLocale,
-                progressListener,
-                progressRequestListener);
+                body, sellerId, sku, marketplaceIds, includedData, mode, issueLocale, progressRequestListener);
     }
 
     /**
@@ -655,9 +627,11 @@ public class ListingsApi {
             String issueLocale)
             throws ApiException, LWAException {
         okhttp3.Call call = patchListingsItemValidateBeforeCall(
-                body, sellerId, sku, marketplaceIds, includedData, mode, issueLocale, null, null);
-        Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                body, sellerId, sku, marketplaceIds, includedData, mode, issueLocale, null);
+        if (disableRateLimiting || patchListingsItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("patchListingsItem operation exceeds rate limit");
     }
 
     /**
@@ -697,27 +671,19 @@ public class ListingsApi {
             final ApiCallback<ListingsItemSubmissionResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = patchListingsItemValidateBeforeCall(
-                body,
-                sellerId,
-                sku,
-                marketplaceIds,
-                includedData,
-                mode,
-                issueLocale,
-                progressListener,
-                progressRequestListener);
-        Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                body, sellerId, sku, marketplaceIds, includedData, mode, issueLocale, progressRequestListener);
+        if (disableRateLimiting || patchListingsItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("patchListingsItem operation exceeds rate limit");
     }
     /**
      * Build call for putListingsItem
@@ -732,13 +698,12 @@ public class ListingsApi {
      * @param issueLocale A locale for localization of issues. When not provided, the default language code of the first
      *     marketplace is used. Examples: &#x60;en_US&#x60;, &#x60;fr_CA&#x60;, &#x60;fr_FR&#x60;. Localized messages
      *     default to &#x60;en_US&#x60; when a localization is not available in the specified locale. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call putListingsItemCall(
+    private okhttp3.Call putListingsItemCall(
             ListingsItemPutRequest body,
             String sellerId,
             String sku,
@@ -746,7 +711,6 @@ public class ListingsApi {
             List<String> includedData,
             String mode,
             String issueLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
@@ -777,17 +741,6 @@ public class ListingsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "PUT",
@@ -796,7 +749,6 @@ public class ListingsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -808,7 +760,6 @@ public class ListingsApi {
             List<String> includedData,
             String mode,
             String issueLocale,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
@@ -830,15 +781,7 @@ public class ListingsApi {
         }
 
         return putListingsItemCall(
-                body,
-                sellerId,
-                sku,
-                marketplaceIds,
-                includedData,
-                mode,
-                issueLocale,
-                progressListener,
-                progressRequestListener);
+                body, sellerId, sku, marketplaceIds, includedData, mode, issueLocale, progressRequestListener);
     }
 
     /**
@@ -919,9 +862,11 @@ public class ListingsApi {
             String issueLocale)
             throws ApiException, LWAException {
         okhttp3.Call call = putListingsItemValidateBeforeCall(
-                body, sellerId, sku, marketplaceIds, includedData, mode, issueLocale, null, null);
-        Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                body, sellerId, sku, marketplaceIds, includedData, mode, issueLocale, null);
+        if (disableRateLimiting || putListingsItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("putListingsItem operation exceeds rate limit");
     }
 
     /**
@@ -963,27 +908,19 @@ public class ListingsApi {
             final ApiCallback<ListingsItemSubmissionResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = putListingsItemValidateBeforeCall(
-                body,
-                sellerId,
-                sku,
-                marketplaceIds,
-                includedData,
-                mode,
-                issueLocale,
-                progressListener,
-                progressRequestListener);
-        Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                body, sellerId, sku, marketplaceIds, includedData, mode, issueLocale, progressRequestListener);
+        if (disableRateLimiting || putListingsItemBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListingsItemSubmissionResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("putListingsItem operation exceeds rate limit");
     }
     /**
      * Build call for searchListingsItems
@@ -1030,13 +967,12 @@ public class ListingsApi {
      * @param pageSize The number of results that you want to include on each page. (optional, default to 10)
      * @param pageToken A token that you can use to fetch a specific page when there are multiple pages of results.
      *     (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call searchListingsItemsCall(
+    private okhttp3.Call searchListingsItemsCall(
             String sellerId,
             List<String> marketplaceIds,
             String issueLocale,
@@ -1056,7 +992,6 @@ public class ListingsApi {
             String sortOrder,
             Integer pageSize,
             String pageToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -1112,17 +1047,6 @@ public class ListingsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -1131,7 +1055,6 @@ public class ListingsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -1155,7 +1078,6 @@ public class ListingsApi {
             String sortOrder,
             Integer pageSize,
             String pageToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'sellerId' is set
@@ -1188,7 +1110,6 @@ public class ListingsApi {
                 sortOrder,
                 pageSize,
                 pageToken,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -1387,10 +1308,11 @@ public class ListingsApi {
                 sortOrder,
                 pageSize,
                 pageToken,
-                null,
                 null);
-        Type localVarReturnType = new TypeToken<ItemSearchResults>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        if (disableRateLimiting || searchListingsItemsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ItemSearchResults>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("searchListingsItems operation exceeds rate limit");
     }
 
     /**
@@ -1472,11 +1394,9 @@ public class ListingsApi {
             final ApiCallback<ItemSearchResults> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -1500,11 +1420,12 @@ public class ListingsApi {
                 sortOrder,
                 pageSize,
                 pageToken,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<ItemSearchResults>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || searchListingsItemsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ItemSearchResults>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("searchListingsItems operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -1512,7 +1433,7 @@ public class ListingsApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -1534,13 +1455,8 @@ public class ListingsApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -1563,10 +1479,11 @@ public class ListingsApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new ListingsApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new ListingsApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

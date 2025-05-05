@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,9 +29,9 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.awd.v2024_05_09.InboundEligibility;
 import software.amazon.spapi.models.awd.v2024_05_09.InboundOrder;
@@ -46,25 +46,64 @@ import software.amazon.spapi.models.awd.v2024_05_09.TransportationDetails;
 
 public class AwdApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public AwdApi(ApiClient apiClient) {
+    public AwdApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket cancelInboundBucket =
+            Bucket.builder().addLimit(config.getLimit("AwdApi-cancelInbound")).build();
+
+    public final Bucket checkInboundEligibilityBucket = Bucket.builder()
+            .addLimit(config.getLimit("AwdApi-checkInboundEligibility"))
+            .build();
+
+    public final Bucket confirmInboundBucket =
+            Bucket.builder().addLimit(config.getLimit("AwdApi-confirmInbound")).build();
+
+    public final Bucket createInboundBucket =
+            Bucket.builder().addLimit(config.getLimit("AwdApi-createInbound")).build();
+
+    public final Bucket getInboundBucket =
+            Bucket.builder().addLimit(config.getLimit("AwdApi-getInbound")).build();
+
+    public final Bucket getInboundShipmentBucket = Bucket.builder()
+            .addLimit(config.getLimit("AwdApi-getInboundShipment"))
+            .build();
+
+    public final Bucket getInboundShipmentLabelsBucket = Bucket.builder()
+            .addLimit(config.getLimit("AwdApi-getInboundShipmentLabels"))
+            .build();
+
+    public final Bucket listInboundShipmentsBucket = Bucket.builder()
+            .addLimit(config.getLimit("AwdApi-listInboundShipments"))
+            .build();
+
+    public final Bucket listInventoryBucket =
+            Bucket.builder().addLimit(config.getLimit("AwdApi-listInventory")).build();
+
+    public final Bucket updateInboundBucket =
+            Bucket.builder().addLimit(config.getLimit("AwdApi-updateInbound")).build();
+
+    public final Bucket updateInboundShipmentTransportDetailsBucket = Bucket.builder()
+            .addLimit(config.getLimit("AwdApi-updateInboundShipmentTransportDetails"))
+            .build();
 
     /**
      * Build call for cancelInbound
      *
      * @param orderId The ID of the inbound order you want to cancel. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call cancelInboundCall(
-            String orderId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call cancelInboundCall(
+            String orderId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
 
@@ -88,17 +127,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -107,21 +135,18 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call cancelInboundValidateBeforeCall(
-            String orderId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            String orderId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'orderId' is set
         if (orderId == null) {
             throw new ApiException("Missing the required parameter 'orderId' when calling cancelInbound(Async)");
         }
 
-        return cancelInboundCall(orderId, progressListener, progressRequestListener);
+        return cancelInboundCall(orderId, progressRequestListener);
     }
 
     /**
@@ -156,8 +181,10 @@ public class AwdApi {
      * @throws LWAException If calls to fetch LWA access token fails
      */
     public ApiResponse<Void> cancelInboundWithHttpInfo(String orderId) throws ApiException, LWAException {
-        okhttp3.Call call = cancelInboundValidateBeforeCall(orderId, null, null);
-        return apiClient.execute(call);
+        okhttp3.Call call = cancelInboundValidateBeforeCall(orderId, null);
+        if (disableRateLimiting || cancelInboundBucket.tryConsume(1)) {
+            return apiClient.execute(call);
+        } else throw new ApiException.RateLimitExceeded("cancelInbound operation exceeds rate limit");
     }
 
     /**
@@ -178,32 +205,29 @@ public class AwdApi {
     public okhttp3.Call cancelInboundAsync(String orderId, final ApiCallback<Void> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = cancelInboundValidateBeforeCall(orderId, progressListener, progressRequestListener);
-        apiClient.executeAsync(call, callback);
-        return call;
+        okhttp3.Call call = cancelInboundValidateBeforeCall(orderId, progressRequestListener);
+        if (disableRateLimiting || cancelInboundBucket.tryConsume(1)) {
+            apiClient.executeAsync(call, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("cancelInbound operation exceeds rate limit");
     }
     /**
      * Build call for checkInboundEligibility
      *
      * @param body Represents the packages you want to inbound. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call checkInboundEligibilityCall(
-            InboundPackages body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call checkInboundEligibilityCall(
+            InboundPackages body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
 
@@ -225,17 +249,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -244,21 +257,18 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call checkInboundEligibilityValidateBeforeCall(
-            InboundPackages body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            InboundPackages body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
         if (body == null) {
             throw new ApiException("Missing the required parameter 'body' when calling checkInboundEligibility(Async)");
         }
 
-        return checkInboundEligibilityCall(body, progressListener, progressRequestListener);
+        return checkInboundEligibilityCall(body, progressRequestListener);
     }
 
     /**
@@ -296,9 +306,11 @@ public class AwdApi {
      */
     public ApiResponse<InboundEligibility> checkInboundEligibilityWithHttpInfo(InboundPackages body)
             throws ApiException, LWAException {
-        okhttp3.Call call = checkInboundEligibilityValidateBeforeCall(body, null, null);
-        Type localVarReturnType = new TypeToken<InboundEligibility>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = checkInboundEligibilityValidateBeforeCall(body, null);
+        if (disableRateLimiting || checkInboundEligibilityBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InboundEligibility>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("checkInboundEligibility operation exceeds rate limit");
     }
 
     /**
@@ -319,33 +331,30 @@ public class AwdApi {
     public okhttp3.Call checkInboundEligibilityAsync(
             InboundPackages body, final ApiCallback<InboundEligibility> callback) throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = checkInboundEligibilityValidateBeforeCall(body, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<InboundEligibility>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = checkInboundEligibilityValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || checkInboundEligibilityBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InboundEligibility>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("checkInboundEligibility operation exceeds rate limit");
     }
     /**
      * Build call for confirmInbound
      *
      * @param orderId The ID of the inbound order that you want to confirm. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call confirmInboundCall(
-            String orderId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call confirmInboundCall(
+            String orderId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
 
@@ -369,17 +378,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -388,21 +386,18 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call confirmInboundValidateBeforeCall(
-            String orderId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            String orderId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'orderId' is set
         if (orderId == null) {
             throw new ApiException("Missing the required parameter 'orderId' when calling confirmInbound(Async)");
         }
 
-        return confirmInboundCall(orderId, progressListener, progressRequestListener);
+        return confirmInboundCall(orderId, progressRequestListener);
     }
 
     /**
@@ -437,8 +432,10 @@ public class AwdApi {
      * @throws LWAException If calls to fetch LWA access token fails
      */
     public ApiResponse<Void> confirmInboundWithHttpInfo(String orderId) throws ApiException, LWAException {
-        okhttp3.Call call = confirmInboundValidateBeforeCall(orderId, null, null);
-        return apiClient.execute(call);
+        okhttp3.Call call = confirmInboundValidateBeforeCall(orderId, null);
+        if (disableRateLimiting || confirmInboundBucket.tryConsume(1)) {
+            return apiClient.execute(call);
+        } else throw new ApiException.RateLimitExceeded("confirmInbound operation exceeds rate limit");
     }
 
     /**
@@ -459,32 +456,29 @@ public class AwdApi {
     public okhttp3.Call confirmInboundAsync(String orderId, final ApiCallback<Void> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = confirmInboundValidateBeforeCall(orderId, progressListener, progressRequestListener);
-        apiClient.executeAsync(call, callback);
-        return call;
+        okhttp3.Call call = confirmInboundValidateBeforeCall(orderId, progressRequestListener);
+        if (disableRateLimiting || confirmInboundBucket.tryConsume(1)) {
+            apiClient.executeAsync(call, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("confirmInbound operation exceeds rate limit");
     }
     /**
      * Build call for createInbound
      *
      * @param body Payload for creating an inbound order. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call createInboundCall(
-            InboundOrderCreationData body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call createInboundCall(
+            InboundOrderCreationData body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
 
@@ -506,17 +500,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -525,21 +508,18 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call createInboundValidateBeforeCall(
-            InboundOrderCreationData body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            InboundOrderCreationData body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
         if (body == null) {
             throw new ApiException("Missing the required parameter 'body' when calling createInbound(Async)");
         }
 
-        return createInboundCall(body, progressListener, progressRequestListener);
+        return createInboundCall(body, progressRequestListener);
     }
 
     /**
@@ -577,9 +557,11 @@ public class AwdApi {
      */
     public ApiResponse<InboundOrderReference> createInboundWithHttpInfo(InboundOrderCreationData body)
             throws ApiException, LWAException {
-        okhttp3.Call call = createInboundValidateBeforeCall(body, null, null);
-        Type localVarReturnType = new TypeToken<InboundOrderReference>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = createInboundValidateBeforeCall(body, null);
+        if (disableRateLimiting || createInboundBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InboundOrderReference>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("createInbound operation exceeds rate limit");
     }
 
     /**
@@ -601,33 +583,30 @@ public class AwdApi {
             InboundOrderCreationData body, final ApiCallback<InboundOrderReference> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = createInboundValidateBeforeCall(body, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<InboundOrderReference>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = createInboundValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || createInboundBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InboundOrderReference>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("createInbound operation exceeds rate limit");
     }
     /**
      * Build call for getInbound
      *
      * @param orderId The ID of the inbound order that you want to retrieve. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getInboundCall(
-            String orderId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call getInboundCall(
+            String orderId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
 
@@ -651,17 +630,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -670,21 +638,18 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call getInboundValidateBeforeCall(
-            String orderId,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            String orderId, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'orderId' is set
         if (orderId == null) {
             throw new ApiException("Missing the required parameter 'orderId' when calling getInbound(Async)");
         }
 
-        return getInboundCall(orderId, progressListener, progressRequestListener);
+        return getInboundCall(orderId, progressRequestListener);
     }
 
     /**
@@ -719,9 +684,11 @@ public class AwdApi {
      * @throws LWAException If calls to fetch LWA access token fails
      */
     public ApiResponse<InboundOrder> getInboundWithHttpInfo(String orderId) throws ApiException, LWAException {
-        okhttp3.Call call = getInboundValidateBeforeCall(orderId, null, null);
-        Type localVarReturnType = new TypeToken<InboundOrder>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getInboundValidateBeforeCall(orderId, null);
+        if (disableRateLimiting || getInboundBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InboundOrder>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getInbound operation exceeds rate limit");
     }
 
     /**
@@ -741,18 +708,18 @@ public class AwdApi {
     public okhttp3.Call getInboundAsync(String orderId, final ApiCallback<InboundOrder> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = getInboundValidateBeforeCall(orderId, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<InboundOrder>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = getInboundValidateBeforeCall(orderId, progressRequestListener);
+        if (disableRateLimiting || getInboundBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InboundOrder>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getInbound operation exceeds rate limit");
     }
     /**
      * Build call for getInboundShipment
@@ -760,16 +727,14 @@ public class AwdApi {
      * @param shipmentId ID for the shipment. A shipment contains the cases being inbounded. (required)
      * @param skuQuantities If equal to &#x60;SHOW&#x60;, the response includes the shipment SKU quantity details.
      *     Defaults to &#x60;HIDE&#x60;, in which case the response does not contain SKU quantities (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getInboundShipmentCall(
+    private okhttp3.Call getInboundShipmentCall(
             String shipmentId,
             String skuQuantities,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -796,17 +761,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -815,14 +769,12 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call getInboundShipmentValidateBeforeCall(
             String shipmentId,
             String skuQuantities,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'shipmentId' is set
@@ -831,7 +783,7 @@ public class AwdApi {
                     "Missing the required parameter 'shipmentId' when calling getInboundShipment(Async)");
         }
 
-        return getInboundShipmentCall(shipmentId, skuQuantities, progressListener, progressRequestListener);
+        return getInboundShipmentCall(shipmentId, skuQuantities, progressRequestListener);
     }
 
     /**
@@ -872,9 +824,11 @@ public class AwdApi {
      */
     public ApiResponse<InboundShipment> getInboundShipmentWithHttpInfo(String shipmentId, String skuQuantities)
             throws ApiException, LWAException {
-        okhttp3.Call call = getInboundShipmentValidateBeforeCall(shipmentId, skuQuantities, null, null);
-        Type localVarReturnType = new TypeToken<InboundShipment>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getInboundShipmentValidateBeforeCall(shipmentId, skuQuantities, null);
+        if (disableRateLimiting || getInboundShipmentBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InboundShipment>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getInboundShipment operation exceeds rate limit");
     }
 
     /**
@@ -897,19 +851,18 @@ public class AwdApi {
             String shipmentId, String skuQuantities, final ApiCallback<InboundShipment> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = getInboundShipmentValidateBeforeCall(
-                shipmentId, skuQuantities, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<InboundShipment>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = getInboundShipmentValidateBeforeCall(shipmentId, skuQuantities, progressRequestListener);
+        if (disableRateLimiting || getInboundShipmentBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InboundShipment>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getInboundShipment operation exceeds rate limit");
     }
     /**
      * Build call for getInboundShipmentLabels
@@ -918,17 +871,15 @@ public class AwdApi {
      * @param pageType Page type for the generated labels. The default is &#x60;PLAIN_PAPER&#x60;. (optional)
      * @param formatType The format type of the output file that contains your labels. The default format type is
      *     &#x60;PDF&#x60;. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getInboundShipmentLabelsCall(
+    private okhttp3.Call getInboundShipmentLabelsCall(
             String shipmentId,
             String pageType,
             String formatType,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -955,17 +906,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -974,7 +914,6 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -982,7 +921,6 @@ public class AwdApi {
             String shipmentId,
             String pageType,
             String formatType,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'shipmentId' is set
@@ -991,8 +929,7 @@ public class AwdApi {
                     "Missing the required parameter 'shipmentId' when calling getInboundShipmentLabels(Async)");
         }
 
-        return getInboundShipmentLabelsCall(
-                shipmentId, pageType, formatType, progressListener, progressRequestListener);
+        return getInboundShipmentLabelsCall(shipmentId, pageType, formatType, progressRequestListener);
     }
 
     /**
@@ -1039,9 +976,11 @@ public class AwdApi {
      */
     public ApiResponse<ShipmentLabels> getInboundShipmentLabelsWithHttpInfo(
             String shipmentId, String pageType, String formatType) throws ApiException, LWAException {
-        okhttp3.Call call = getInboundShipmentLabelsValidateBeforeCall(shipmentId, pageType, formatType, null, null);
-        Type localVarReturnType = new TypeToken<ShipmentLabels>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = getInboundShipmentLabelsValidateBeforeCall(shipmentId, pageType, formatType, null);
+        if (disableRateLimiting || getInboundShipmentLabelsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ShipmentLabels>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getInboundShipmentLabels operation exceeds rate limit");
     }
 
     /**
@@ -1067,19 +1006,19 @@ public class AwdApi {
             String shipmentId, String pageType, String formatType, final ApiCallback<ShipmentLabels> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = getInboundShipmentLabelsValidateBeforeCall(
-                shipmentId, pageType, formatType, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<ShipmentLabels>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call =
+                getInboundShipmentLabelsValidateBeforeCall(shipmentId, pageType, formatType, progressRequestListener);
+        if (disableRateLimiting || getInboundShipmentLabelsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ShipmentLabels>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getInboundShipmentLabels operation exceeds rate limit");
     }
     /**
      * Build call for listInboundShipments
@@ -1100,13 +1039,12 @@ public class AwdApi {
      *     the next page of results, call the operation with this token and include the same arguments as the call that
      *     produced the token. To get a complete list, call this operation until &#x60;nextToken&#x60; is null. Note
      *     that this operation can return empty pages. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call listInboundShipmentsCall(
+    private okhttp3.Call listInboundShipmentsCall(
             String sortBy,
             String sortOrder,
             String shipmentStatus,
@@ -1114,7 +1052,6 @@ public class AwdApi {
             OffsetDateTime updatedBefore,
             Integer maxResults,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -1147,17 +1084,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -1166,7 +1092,6 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -1178,7 +1103,6 @@ public class AwdApi {
             OffsetDateTime updatedBefore,
             Integer maxResults,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
 
@@ -1190,7 +1114,6 @@ public class AwdApi {
                 updatedBefore,
                 maxResults,
                 nextToken,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -1276,9 +1199,11 @@ public class AwdApi {
             String nextToken)
             throws ApiException, LWAException {
         okhttp3.Call call = listInboundShipmentsValidateBeforeCall(
-                sortBy, sortOrder, shipmentStatus, updatedAfter, updatedBefore, maxResults, nextToken, null, null);
-        Type localVarReturnType = new TypeToken<ShipmentListing>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                sortBy, sortOrder, shipmentStatus, updatedAfter, updatedBefore, maxResults, nextToken, null);
+        if (disableRateLimiting || listInboundShipmentsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ShipmentListing>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("listInboundShipments operation exceeds rate limit");
     }
 
     /**
@@ -1322,11 +1247,9 @@ public class AwdApi {
             final ApiCallback<ShipmentListing> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -1338,11 +1261,12 @@ public class AwdApi {
                 updatedBefore,
                 maxResults,
                 nextToken,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<ShipmentListing>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || listInboundShipmentsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ShipmentListing>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("listInboundShipments operation exceeds rate limit");
     }
     /**
      * Build call for listInventory
@@ -1357,19 +1281,17 @@ public class AwdApi {
      *     produced the token. To get a complete list, call this operation until &#x60;nextToken&#x60; is null. Note
      *     that this operation can return empty pages. (optional)
      * @param maxResults Maximum number of results to return. (optional, default to 25)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call listInventoryCall(
+    private okhttp3.Call listInventoryCall(
             String sku,
             String sortOrder,
             String details,
             String nextToken,
             Integer maxResults,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -1398,17 +1320,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -1417,7 +1328,6 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -1427,12 +1337,10 @@ public class AwdApi {
             String details,
             String nextToken,
             Integer maxResults,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
 
-        return listInventoryCall(
-                sku, sortOrder, details, nextToken, maxResults, progressListener, progressRequestListener);
+        return listInventoryCall(sku, sortOrder, details, nextToken, maxResults, progressRequestListener);
     }
 
     /**
@@ -1491,9 +1399,11 @@ public class AwdApi {
     public ApiResponse<InventoryListing> listInventoryWithHttpInfo(
             String sku, String sortOrder, String details, String nextToken, Integer maxResults)
             throws ApiException, LWAException {
-        okhttp3.Call call = listInventoryValidateBeforeCall(sku, sortOrder, details, nextToken, maxResults, null, null);
-        Type localVarReturnType = new TypeToken<InventoryListing>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = listInventoryValidateBeforeCall(sku, sortOrder, details, nextToken, maxResults, null);
+        if (disableRateLimiting || listInventoryBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InventoryListing>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("listInventory operation exceeds rate limit");
     }
 
     /**
@@ -1529,35 +1439,33 @@ public class AwdApi {
             final ApiCallback<InventoryListing> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = listInventoryValidateBeforeCall(
-                sku, sortOrder, details, nextToken, maxResults, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<InventoryListing>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                sku, sortOrder, details, nextToken, maxResults, progressRequestListener);
+        if (disableRateLimiting || listInventoryBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<InventoryListing>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("listInventory operation exceeds rate limit");
     }
     /**
      * Build call for updateInbound
      *
      * @param body Represents an AWD inbound order. (required)
      * @param orderId The ID of the inbound order that you want to update. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call updateInboundCall(
+    private okhttp3.Call updateInboundCall(
             InboundOrder body,
             String orderId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
@@ -1581,17 +1489,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "PUT",
@@ -1600,14 +1497,12 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call updateInboundValidateBeforeCall(
             InboundOrder body,
             String orderId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
@@ -1619,7 +1514,7 @@ public class AwdApi {
             throw new ApiException("Missing the required parameter 'orderId' when calling updateInbound(Async)");
         }
 
-        return updateInboundCall(body, orderId, progressListener, progressRequestListener);
+        return updateInboundCall(body, orderId, progressRequestListener);
     }
 
     /**
@@ -1659,8 +1554,10 @@ public class AwdApi {
      */
     public ApiResponse<Void> updateInboundWithHttpInfo(InboundOrder body, String orderId)
             throws ApiException, LWAException {
-        okhttp3.Call call = updateInboundValidateBeforeCall(body, orderId, null, null);
-        return apiClient.execute(call);
+        okhttp3.Call call = updateInboundValidateBeforeCall(body, orderId, null);
+        if (disableRateLimiting || updateInboundBucket.tryConsume(1)) {
+            return apiClient.execute(call);
+        } else throw new ApiException.RateLimitExceeded("updateInbound operation exceeds rate limit");
     }
 
     /**
@@ -1683,33 +1580,31 @@ public class AwdApi {
     public okhttp3.Call updateInboundAsync(InboundOrder body, String orderId, final ApiCallback<Void> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = updateInboundValidateBeforeCall(body, orderId, progressListener, progressRequestListener);
-        apiClient.executeAsync(call, callback);
-        return call;
+        okhttp3.Call call = updateInboundValidateBeforeCall(body, orderId, progressRequestListener);
+        if (disableRateLimiting || updateInboundBucket.tryConsume(1)) {
+            apiClient.executeAsync(call, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("updateInbound operation exceeds rate limit");
     }
     /**
      * Build call for updateInboundShipmentTransportDetails
      *
      * @param body Transportation details for the shipment. (required)
      * @param shipmentId The shipment ID. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call updateInboundShipmentTransportDetailsCall(
+    private okhttp3.Call updateInboundShipmentTransportDetailsCall(
             TransportationDetails body,
             String shipmentId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
@@ -1733,17 +1628,6 @@ public class AwdApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "PUT",
@@ -1752,14 +1636,12 @@ public class AwdApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call updateInboundShipmentTransportDetailsValidateBeforeCall(
             TransportationDetails body,
             String shipmentId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
@@ -1773,7 +1655,7 @@ public class AwdApi {
                     "Missing the required parameter 'shipmentId' when calling updateInboundShipmentTransportDetails(Async)");
         }
 
-        return updateInboundShipmentTransportDetailsCall(body, shipmentId, progressListener, progressRequestListener);
+        return updateInboundShipmentTransportDetailsCall(body, shipmentId, progressRequestListener);
     }
 
     /**
@@ -1810,8 +1692,12 @@ public class AwdApi {
      */
     public ApiResponse<Void> updateInboundShipmentTransportDetailsWithHttpInfo(
             TransportationDetails body, String shipmentId) throws ApiException, LWAException {
-        okhttp3.Call call = updateInboundShipmentTransportDetailsValidateBeforeCall(body, shipmentId, null, null);
-        return apiClient.execute(call);
+        okhttp3.Call call = updateInboundShipmentTransportDetailsValidateBeforeCall(body, shipmentId, null);
+        if (disableRateLimiting || updateInboundShipmentTransportDetailsBucket.tryConsume(1)) {
+            return apiClient.execute(call);
+        } else
+            throw new ApiException.RateLimitExceeded(
+                    "updateInboundShipmentTransportDetails operation exceeds rate limit");
     }
 
     /**
@@ -1834,18 +1720,20 @@ public class AwdApi {
             TransportationDetails body, String shipmentId, final ApiCallback<Void> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = updateInboundShipmentTransportDetailsValidateBeforeCall(
-                body, shipmentId, progressListener, progressRequestListener);
-        apiClient.executeAsync(call, callback);
-        return call;
+        okhttp3.Call call =
+                updateInboundShipmentTransportDetailsValidateBeforeCall(body, shipmentId, progressRequestListener);
+        if (disableRateLimiting || updateInboundShipmentTransportDetailsBucket.tryConsume(1)) {
+            apiClient.executeAsync(call, callback);
+            return call;
+        } else
+            throw new ApiException.RateLimitExceeded(
+                    "updateInboundShipmentTransportDetails operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -1853,7 +1741,7 @@ public class AwdApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -1875,13 +1763,8 @@ public class AwdApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -1904,10 +1787,11 @@ public class AwdApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new AwdApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new AwdApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

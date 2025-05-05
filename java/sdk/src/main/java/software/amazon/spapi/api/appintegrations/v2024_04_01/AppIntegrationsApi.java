@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,9 +28,9 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.appintegrations.v2024_04_01.CreateNotificationRequest;
 import software.amazon.spapi.models.appintegrations.v2024_04_01.CreateNotificationResponse;
@@ -39,25 +39,38 @@ import software.amazon.spapi.models.appintegrations.v2024_04_01.RecordActionFeed
 
 public class AppIntegrationsApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public AppIntegrationsApi(ApiClient apiClient) {
+    public AppIntegrationsApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket createNotificationBucket = Bucket.builder()
+            .addLimit(config.getLimit("AppIntegrationsApi-createNotification"))
+            .build();
+
+    public final Bucket deleteNotificationsBucket = Bucket.builder()
+            .addLimit(config.getLimit("AppIntegrationsApi-deleteNotifications"))
+            .build();
+
+    public final Bucket recordActionFeedbackBucket = Bucket.builder()
+            .addLimit(config.getLimit("AppIntegrationsApi-recordActionFeedback"))
+            .build();
 
     /**
      * Build call for createNotification
      *
      * @param body The request body for the &#x60;createNotification&#x60; operation. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call createNotificationCall(
-            CreateNotificationRequest body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call createNotificationCall(
+            CreateNotificationRequest body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
 
@@ -79,17 +92,6 @@ public class AppIntegrationsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -98,21 +100,18 @@ public class AppIntegrationsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call createNotificationValidateBeforeCall(
-            CreateNotificationRequest body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            CreateNotificationRequest body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
         if (body == null) {
             throw new ApiException("Missing the required parameter 'body' when calling createNotification(Async)");
         }
 
-        return createNotificationCall(body, progressListener, progressRequestListener);
+        return createNotificationCall(body, progressRequestListener);
     }
 
     /**
@@ -149,9 +148,11 @@ public class AppIntegrationsApi {
      */
     public ApiResponse<CreateNotificationResponse> createNotificationWithHttpInfo(CreateNotificationRequest body)
             throws ApiException, LWAException {
-        okhttp3.Call call = createNotificationValidateBeforeCall(body, null, null);
-        Type localVarReturnType = new TypeToken<CreateNotificationResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = createNotificationValidateBeforeCall(body, null);
+        if (disableRateLimiting || createNotificationBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<CreateNotificationResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("createNotification operation exceeds rate limit");
     }
 
     /**
@@ -173,33 +174,30 @@ public class AppIntegrationsApi {
             CreateNotificationRequest body, final ApiCallback<CreateNotificationResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = createNotificationValidateBeforeCall(body, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<CreateNotificationResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        okhttp3.Call call = createNotificationValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || createNotificationBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<CreateNotificationResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("createNotification operation exceeds rate limit");
     }
     /**
      * Build call for deleteNotifications
      *
      * @param body The request body for the &#x60;deleteNotifications&#x60; operation. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call deleteNotificationsCall(
-            DeleteNotificationsRequest body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+    private okhttp3.Call deleteNotificationsCall(
+            DeleteNotificationsRequest body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
 
@@ -221,17 +219,6 @@ public class AppIntegrationsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -240,21 +227,18 @@ public class AppIntegrationsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call deleteNotificationsValidateBeforeCall(
-            DeleteNotificationsRequest body,
-            final ProgressResponseBody.ProgressListener progressListener,
-            final ProgressRequestBody.ProgressRequestListener progressRequestListener)
+            DeleteNotificationsRequest body, final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
         if (body == null) {
             throw new ApiException("Missing the required parameter 'body' when calling deleteNotifications(Async)");
         }
 
-        return deleteNotificationsCall(body, progressListener, progressRequestListener);
+        return deleteNotificationsCall(body, progressRequestListener);
     }
 
     /**
@@ -290,8 +274,10 @@ public class AppIntegrationsApi {
      */
     public ApiResponse<Void> deleteNotificationsWithHttpInfo(DeleteNotificationsRequest body)
             throws ApiException, LWAException {
-        okhttp3.Call call = deleteNotificationsValidateBeforeCall(body, null, null);
-        return apiClient.execute(call);
+        okhttp3.Call call = deleteNotificationsValidateBeforeCall(body, null);
+        if (disableRateLimiting || deleteNotificationsBucket.tryConsume(1)) {
+            return apiClient.execute(call);
+        } else throw new ApiException.RateLimitExceeded("deleteNotifications operation exceeds rate limit");
     }
 
     /**
@@ -312,33 +298,31 @@ public class AppIntegrationsApi {
     public okhttp3.Call deleteNotificationsAsync(DeleteNotificationsRequest body, final ApiCallback<Void> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call = deleteNotificationsValidateBeforeCall(body, progressListener, progressRequestListener);
-        apiClient.executeAsync(call, callback);
-        return call;
+        okhttp3.Call call = deleteNotificationsValidateBeforeCall(body, progressRequestListener);
+        if (disableRateLimiting || deleteNotificationsBucket.tryConsume(1)) {
+            apiClient.executeAsync(call, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("deleteNotifications operation exceeds rate limit");
     }
     /**
      * Build call for recordActionFeedback
      *
      * @param body The request body for the &#x60;recordActionFeedback&#x60; operation. (required)
      * @param notificationId A &#x60;notificationId&#x60; uniquely identifies a notification. (required)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call recordActionFeedbackCall(
+    private okhttp3.Call recordActionFeedbackCall(
             RecordActionFeedbackRequest body,
             String notificationId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = body;
@@ -362,17 +346,6 @@ public class AppIntegrationsApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "POST",
@@ -381,14 +354,12 @@ public class AppIntegrationsApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
     private okhttp3.Call recordActionFeedbackValidateBeforeCall(
             RecordActionFeedbackRequest body,
             String notificationId,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'body' is set
@@ -401,7 +372,7 @@ public class AppIntegrationsApi {
                     "Missing the required parameter 'notificationId' when calling recordActionFeedback(Async)");
         }
 
-        return recordActionFeedbackCall(body, notificationId, progressListener, progressRequestListener);
+        return recordActionFeedbackCall(body, notificationId, progressRequestListener);
     }
 
     /**
@@ -438,8 +409,10 @@ public class AppIntegrationsApi {
      */
     public ApiResponse<Void> recordActionFeedbackWithHttpInfo(RecordActionFeedbackRequest body, String notificationId)
             throws ApiException, LWAException {
-        okhttp3.Call call = recordActionFeedbackValidateBeforeCall(body, notificationId, null, null);
-        return apiClient.execute(call);
+        okhttp3.Call call = recordActionFeedbackValidateBeforeCall(body, notificationId, null);
+        if (disableRateLimiting || recordActionFeedbackBucket.tryConsume(1)) {
+            return apiClient.execute(call);
+        } else throw new ApiException.RateLimitExceeded("recordActionFeedback operation exceeds rate limit");
     }
 
     /**
@@ -462,18 +435,17 @@ public class AppIntegrationsApi {
             RecordActionFeedbackRequest body, String notificationId, final ApiCallback<Void> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
-        okhttp3.Call call =
-                recordActionFeedbackValidateBeforeCall(body, notificationId, progressListener, progressRequestListener);
-        apiClient.executeAsync(call, callback);
-        return call;
+        okhttp3.Call call = recordActionFeedbackValidateBeforeCall(body, notificationId, progressRequestListener);
+        if (disableRateLimiting || recordActionFeedbackBucket.tryConsume(1)) {
+            apiClient.executeAsync(call, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("recordActionFeedback operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -481,7 +453,7 @@ public class AppIntegrationsApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -503,13 +475,8 @@ public class AppIntegrationsApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -532,10 +499,11 @@ public class AppIntegrationsApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new AppIntegrationsApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new AppIntegrationsApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

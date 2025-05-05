@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,19 +29,39 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.finances.v0.ListFinancialEventGroupsResponse;
 import software.amazon.spapi.models.finances.v0.ListFinancialEventsResponse;
 
 public class DefaultApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public DefaultApi(ApiClient apiClient) {
+    public DefaultApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket listFinancialEventGroupsBucket = Bucket.builder()
+            .addLimit(config.getLimit("DefaultApi-listFinancialEventGroups"))
+            .build();
+
+    public final Bucket listFinancialEventsBucket = Bucket.builder()
+            .addLimit(config.getLimit("DefaultApi-listFinancialEvents"))
+            .build();
+
+    public final Bucket listFinancialEventsByGroupIdBucket = Bucket.builder()
+            .addLimit(config.getLimit("DefaultApi-listFinancialEventsByGroupId"))
+            .build();
+
+    public final Bucket listFinancialEventsByOrderIdBucket = Bucket.builder()
+            .addLimit(config.getLimit("DefaultApi-listFinancialEventsByOrderId"))
+            .build();
 
     /**
      * Build call for listFinancialEventGroups
@@ -57,18 +77,16 @@ public class DefaultApi {
      *     a specified date and time, in [ISO 8601](https://developer-docs.amazon.com/sp-api/docs/iso-8601) format. The
      *     date-time must be no later than two minutes before the request was submitted. (optional)
      * @param nextToken A string token returned in the response of your previous request. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call listFinancialEventGroupsCall(
+    private okhttp3.Call listFinancialEventGroupsCall(
             Integer maxResultsPerPage,
             OffsetDateTime financialEventGroupStartedBefore,
             OffsetDateTime financialEventGroupStartedAfter,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -101,17 +119,6 @@ public class DefaultApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -120,7 +127,6 @@ public class DefaultApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -129,7 +135,6 @@ public class DefaultApi {
             OffsetDateTime financialEventGroupStartedBefore,
             OffsetDateTime financialEventGroupStartedAfter,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
 
@@ -138,7 +143,6 @@ public class DefaultApi {
                 financialEventGroupStartedBefore,
                 financialEventGroupStartedAfter,
                 nextToken,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -208,14 +212,11 @@ public class DefaultApi {
             String nextToken)
             throws ApiException, LWAException {
         okhttp3.Call call = listFinancialEventGroupsValidateBeforeCall(
-                maxResultsPerPage,
-                financialEventGroupStartedBefore,
-                financialEventGroupStartedAfter,
-                nextToken,
-                null,
-                null);
-        Type localVarReturnType = new TypeToken<ListFinancialEventGroupsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                maxResultsPerPage, financialEventGroupStartedBefore, financialEventGroupStartedAfter, nextToken, null);
+        if (disableRateLimiting || listFinancialEventGroupsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListFinancialEventGroupsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("listFinancialEventGroups operation exceeds rate limit");
     }
 
     /**
@@ -251,11 +252,9 @@ public class DefaultApi {
             final ApiCallback<ListFinancialEventGroupsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -264,11 +263,12 @@ public class DefaultApi {
                 financialEventGroupStartedBefore,
                 financialEventGroupStartedAfter,
                 nextToken,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<ListFinancialEventGroupsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || listFinancialEventGroupsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListFinancialEventGroupsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("listFinancialEventGroups operation exceeds rate limit");
     }
     /**
      * Build call for listFinancialEvents
@@ -284,18 +284,16 @@ public class DefaultApi {
      *     PostedBefore are more than 180 days apart, no financial events are returned. You must specify the PostedAfter
      *     parameter if you specify the PostedBefore parameter. Default: Now minus two minutes. (optional)
      * @param nextToken A string token returned in the response of your previous request. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call listFinancialEventsCall(
+    private okhttp3.Call listFinancialEventsCall(
             Integer maxResultsPerPage,
             OffsetDateTime postedAfter,
             OffsetDateTime postedBefore,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -324,17 +322,6 @@ public class DefaultApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -343,7 +330,6 @@ public class DefaultApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -352,12 +338,11 @@ public class DefaultApi {
             OffsetDateTime postedAfter,
             OffsetDateTime postedBefore,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
 
         return listFinancialEventsCall(
-                maxResultsPerPage, postedAfter, postedBefore, nextToken, progressListener, progressRequestListener);
+                maxResultsPerPage, postedAfter, postedBefore, nextToken, progressRequestListener);
     }
 
     /**
@@ -421,10 +406,12 @@ public class DefaultApi {
     public ApiResponse<ListFinancialEventsResponse> listFinancialEventsWithHttpInfo(
             Integer maxResultsPerPage, OffsetDateTime postedAfter, OffsetDateTime postedBefore, String nextToken)
             throws ApiException, LWAException {
-        okhttp3.Call call = listFinancialEventsValidateBeforeCall(
-                maxResultsPerPage, postedAfter, postedBefore, nextToken, null, null);
-        Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call =
+                listFinancialEventsValidateBeforeCall(maxResultsPerPage, postedAfter, postedBefore, nextToken, null);
+        if (disableRateLimiting || listFinancialEventsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("listFinancialEvents operation exceeds rate limit");
     }
 
     /**
@@ -461,19 +448,19 @@ public class DefaultApi {
             final ApiCallback<ListFinancialEventsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = listFinancialEventsValidateBeforeCall(
-                maxResultsPerPage, postedAfter, postedBefore, nextToken, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                maxResultsPerPage, postedAfter, postedBefore, nextToken, progressRequestListener);
+        if (disableRateLimiting || listFinancialEventsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("listFinancialEvents operation exceeds rate limit");
     }
     /**
      * Build call for listFinancialEventsByGroupId
@@ -491,19 +478,17 @@ public class DefaultApi {
      *     returned. You must specify the &#x60;PostedAfter&#x60; parameter if you specify the &#x60;PostedBefore&#x60;
      *     parameter. Default: Now minus two minutes. (optional)
      * @param nextToken A string token returned in the response of your previous request. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call listFinancialEventsByGroupIdCall(
+    private okhttp3.Call listFinancialEventsByGroupIdCall(
             String eventGroupId,
             Integer maxResultsPerPage,
             OffsetDateTime postedAfter,
             OffsetDateTime postedBefore,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -533,17 +518,6 @@ public class DefaultApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -552,7 +526,6 @@ public class DefaultApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -562,7 +535,6 @@ public class DefaultApi {
             OffsetDateTime postedAfter,
             OffsetDateTime postedBefore,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'eventGroupId' is set
@@ -572,13 +544,7 @@ public class DefaultApi {
         }
 
         return listFinancialEventsByGroupIdCall(
-                eventGroupId,
-                maxResultsPerPage,
-                postedAfter,
-                postedBefore,
-                nextToken,
-                progressListener,
-                progressRequestListener);
+                eventGroupId, maxResultsPerPage, postedAfter, postedBefore, nextToken, progressRequestListener);
     }
 
     /**
@@ -657,9 +623,11 @@ public class DefaultApi {
             String nextToken)
             throws ApiException, LWAException {
         okhttp3.Call call = listFinancialEventsByGroupIdValidateBeforeCall(
-                eventGroupId, maxResultsPerPage, postedAfter, postedBefore, nextToken, null, null);
-        Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+                eventGroupId, maxResultsPerPage, postedAfter, postedBefore, nextToken, null);
+        if (disableRateLimiting || listFinancialEventsByGroupIdBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("listFinancialEventsByGroupId operation exceeds rate limit");
     }
 
     /**
@@ -700,25 +668,19 @@ public class DefaultApi {
             final ApiCallback<ListFinancialEventsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = listFinancialEventsByGroupIdValidateBeforeCall(
-                eventGroupId,
-                maxResultsPerPage,
-                postedAfter,
-                postedBefore,
-                nextToken,
-                progressListener,
-                progressRequestListener);
-        Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                eventGroupId, maxResultsPerPage, postedAfter, postedBefore, nextToken, progressRequestListener);
+        if (disableRateLimiting || listFinancialEventsByGroupIdBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("listFinancialEventsByGroupId operation exceeds rate limit");
     }
     /**
      * Build call for listFinancialEventsByOrderId
@@ -727,17 +689,15 @@ public class DefaultApi {
      * @param maxResultsPerPage The maximum number of results to return per page. If the response exceeds the maximum
      *     number of transactions or 10 MB, the API responds with &#x27;InvalidInput&#x27;. (optional, default to 100)
      * @param nextToken A string token returned in the response of your previous request. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call listFinancialEventsByOrderIdCall(
+    private okhttp3.Call listFinancialEventsByOrderIdCall(
             String orderId,
             Integer maxResultsPerPage,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -765,17 +725,6 @@ public class DefaultApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -784,7 +733,6 @@ public class DefaultApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -792,7 +740,6 @@ public class DefaultApi {
             String orderId,
             Integer maxResultsPerPage,
             String nextToken,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'orderId' is set
@@ -801,8 +748,7 @@ public class DefaultApi {
                     "Missing the required parameter 'orderId' when calling listFinancialEventsByOrderId(Async)");
         }
 
-        return listFinancialEventsByOrderIdCall(
-                orderId, maxResultsPerPage, nextToken, progressListener, progressRequestListener);
+        return listFinancialEventsByOrderIdCall(orderId, maxResultsPerPage, nextToken, progressRequestListener);
     }
 
     /**
@@ -848,10 +794,11 @@ public class DefaultApi {
      */
     public ApiResponse<ListFinancialEventsResponse> listFinancialEventsByOrderIdWithHttpInfo(
             String orderId, Integer maxResultsPerPage, String nextToken) throws ApiException, LWAException {
-        okhttp3.Call call =
-                listFinancialEventsByOrderIdValidateBeforeCall(orderId, maxResultsPerPage, nextToken, null, null);
-        Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        okhttp3.Call call = listFinancialEventsByOrderIdValidateBeforeCall(orderId, maxResultsPerPage, nextToken, null);
+        if (disableRateLimiting || listFinancialEventsByOrderIdBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("listFinancialEventsByOrderId operation exceeds rate limit");
     }
 
     /**
@@ -879,19 +826,19 @@ public class DefaultApi {
             final ApiCallback<ListFinancialEventsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
         okhttp3.Call call = listFinancialEventsByOrderIdValidateBeforeCall(
-                orderId, maxResultsPerPage, nextToken, progressListener, progressRequestListener);
-        Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+                orderId, maxResultsPerPage, nextToken, progressRequestListener);
+        if (disableRateLimiting || listFinancialEventsByOrderIdBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<ListFinancialEventsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("listFinancialEventsByOrderId operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -899,7 +846,7 @@ public class DefaultApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -921,13 +868,8 @@ public class DefaultApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -950,10 +892,11 @@ public class DefaultApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new DefaultApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new DefaultApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }

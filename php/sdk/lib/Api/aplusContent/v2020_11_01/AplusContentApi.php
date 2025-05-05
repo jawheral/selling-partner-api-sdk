@@ -38,7 +38,6 @@ use GuzzleHttp\Psr7\MultipartStream;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\RequestOptions;
 use SpApi\ApiException;
-use SpApi\AuthAndAuth\RateLimitConfiguration;
 use SpApi\Configuration;
 use SpApi\HeaderSelector;
 use SpApi\Model\aplusContent\v2020_11_01\GetContentDocumentResponse;
@@ -68,6 +67,16 @@ use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
  */
 class AplusContentApi
 {
+    public ?LimiterInterface $createContentDocumentRateLimiter;
+    public ?LimiterInterface $getContentDocumentRateLimiter;
+    public ?LimiterInterface $listContentDocumentAsinRelationsRateLimiter;
+    public ?LimiterInterface $postContentDocumentApprovalSubmissionRateLimiter;
+    public ?LimiterInterface $postContentDocumentAsinRelationsRateLimiter;
+    public ?LimiterInterface $postContentDocumentSuspendSubmissionRateLimiter;
+    public ?LimiterInterface $searchContentDocumentsRateLimiter;
+    public ?LimiterInterface $searchContentPublishRecordsRateLimiter;
+    public ?LimiterInterface $updateContentDocumentRateLimiter;
+    public ?LimiterInterface $validateContentDocumentAsinRelationsRateLimiter;
     protected ClientInterface $client;
 
     protected Configuration $config;
@@ -79,36 +88,45 @@ class AplusContentApi
      */
     protected int $hostIndex;
 
-    private ?RateLimitConfiguration $rateLimitConfig = null;
-
-    private ?LimiterInterface $rateLimiter = null;
+    private bool $rateLimiterEnabled;
+    private InMemoryStorage $rateLimitStorage;
 
     /**
      * @param int $hostIndex (Optional) host index to select the list of hosts if defined in the OpenAPI spec
      */
     public function __construct(
         Configuration $config,
-        ?RateLimitConfiguration $rateLimitConfig = null,
         ?ClientInterface $client = null,
+        ?bool $rateLimiterEnabled = true,
         ?HeaderSelector $selector = null,
         int $hostIndex = 0
     ) {
         $this->config = $config;
-        $this->rateLimitConfig = $rateLimitConfig;
-        if ($rateLimitConfig) {
-            $type = $rateLimitConfig->getRateLimitType();
-            $rateLimitOptions = [
-                'id' => 'spApiCall',
-                'policy' => $type,
-                'limit' => $rateLimitConfig->getRateLimitTokenLimit(),
-            ];
-            if ('fixed_window' === $type || 'sliding_window' === $type) {
-                $rateLimitOptions['interval'] = $rateLimitConfig->getRateLimitToken().'seconds';
-            } else {
-                $rateLimitOptions['rate'] = ['interval' => $rateLimitConfig->getRateLimitToken().'seconds'];
-            }
-            $factory = new RateLimiterFactory($rateLimitOptions, new InMemoryStorage());
-            $this->rateLimiter = $factory->create();
+        $this->rateLimiterEnabled = $rateLimiterEnabled;
+
+        if ($rateLimiterEnabled) {
+            $this->rateLimitStorage = new InMemoryStorage();
+
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-createContentDocument'), $this->rateLimitStorage);
+            $this->createContentDocumentRateLimiter = $factory->create('AplusContentApi-createContentDocument');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-getContentDocument'), $this->rateLimitStorage);
+            $this->getContentDocumentRateLimiter = $factory->create('AplusContentApi-getContentDocument');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-listContentDocumentAsinRelations'), $this->rateLimitStorage);
+            $this->listContentDocumentAsinRelationsRateLimiter = $factory->create('AplusContentApi-listContentDocumentAsinRelations');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-postContentDocumentApprovalSubmission'), $this->rateLimitStorage);
+            $this->postContentDocumentApprovalSubmissionRateLimiter = $factory->create('AplusContentApi-postContentDocumentApprovalSubmission');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-postContentDocumentAsinRelations'), $this->rateLimitStorage);
+            $this->postContentDocumentAsinRelationsRateLimiter = $factory->create('AplusContentApi-postContentDocumentAsinRelations');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-postContentDocumentSuspendSubmission'), $this->rateLimitStorage);
+            $this->postContentDocumentSuspendSubmissionRateLimiter = $factory->create('AplusContentApi-postContentDocumentSuspendSubmission');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-searchContentDocuments'), $this->rateLimitStorage);
+            $this->searchContentDocumentsRateLimiter = $factory->create('AplusContentApi-searchContentDocuments');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-searchContentPublishRecords'), $this->rateLimitStorage);
+            $this->searchContentPublishRecordsRateLimiter = $factory->create('AplusContentApi-searchContentPublishRecords');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-updateContentDocument'), $this->rateLimitStorage);
+            $this->updateContentDocumentRateLimiter = $factory->create('AplusContentApi-updateContentDocument');
+            $factory = new RateLimiterFactory(Configuration::getRateLimitOptions('AplusContentApi-validateContentDocumentAsinRelations'), $this->rateLimitStorage);
+            $this->validateContentDocumentAsinRelationsRateLimiter = $factory->create('AplusContentApi-validateContentDocumentAsinRelations');
         }
 
         $this->client = $client ?: new Client();
@@ -185,7 +203,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->createContentDocumentRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -283,7 +303,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\PostContentDocumentResponse';
         $request = $this->createContentDocumentRequest($marketplace_id, $post_content_document_request);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->createContentDocumentRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -368,7 +390,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
 
         $headers = $this->headerSelector->selectHeaders(
@@ -477,7 +500,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->getContentDocumentRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -581,7 +606,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\GetContentDocumentResponse';
         $request = $this->getContentDocumentRequest($content_reference_key, $marketplace_id, $included_data_set);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->getContentDocumentRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -682,7 +709,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
         // query params
         $queryParams = array_merge($queryParams, ObjectSerializer::toQueryValue(
@@ -691,7 +719,8 @@ class AplusContentApi
             'array', // openApiType
             'form', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
 
         // path params
@@ -815,7 +844,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->listContentDocumentAsinRelationsRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -931,7 +962,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\ListContentDocumentAsinRelationsResponse';
         $request = $this->listContentDocumentAsinRelationsRequest($content_reference_key, $marketplace_id, $included_data_set, $asin_set, $page_token);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->listContentDocumentAsinRelationsRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -1036,7 +1069,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
         // query params
         $queryParams = array_merge($queryParams, ObjectSerializer::toQueryValue(
@@ -1045,7 +1079,8 @@ class AplusContentApi
             'array', // openApiType
             'form', // style
             false, // explode
-            false // required
+            false, // required
+            $this->config
         ) ?? []);
         // query params
         $queryParams = array_merge($queryParams, ObjectSerializer::toQueryValue(
@@ -1054,7 +1089,8 @@ class AplusContentApi
             'array', // openApiType
             'form', // style
             false, // explode
-            false // required
+            false, // required
+            $this->config
         ) ?? []);
         // query params
         $queryParams = array_merge($queryParams, ObjectSerializer::toQueryValue(
@@ -1063,7 +1099,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            false // required
+            false, // required
+            $this->config
         ) ?? []);
 
         // path params
@@ -1169,7 +1206,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->postContentDocumentApprovalSubmissionRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -1267,7 +1306,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\PostContentDocumentApprovalSubmissionResponse';
         $request = $this->postContentDocumentApprovalSubmissionRequest($content_reference_key, $marketplace_id);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->postContentDocumentApprovalSubmissionRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -1355,7 +1396,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
 
         // path params
@@ -1467,7 +1509,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->postContentDocumentAsinRelationsRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -1571,7 +1615,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\PostContentDocumentAsinRelationsResponse';
         $request = $this->postContentDocumentAsinRelationsRequest($content_reference_key, $marketplace_id, $post_content_document_asin_relations_request);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->postContentDocumentAsinRelationsRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -1669,7 +1715,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
 
         // path params
@@ -1781,7 +1828,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->postContentDocumentSuspendSubmissionRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -1879,7 +1928,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\PostContentDocumentSuspendSubmissionResponse';
         $request = $this->postContentDocumentSuspendSubmissionRequest($content_reference_key, $marketplace_id);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->postContentDocumentSuspendSubmissionRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -1967,7 +2018,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
 
         // path params
@@ -2073,7 +2125,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->searchContentDocumentsRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -2171,7 +2225,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\SearchContentDocumentsResponse';
         $request = $this->searchContentDocumentsRequest($marketplace_id, $page_token);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->searchContentDocumentsRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -2253,7 +2309,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
         // query params
         $queryParams = array_merge($queryParams, ObjectSerializer::toQueryValue(
@@ -2262,7 +2319,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            false // required
+            false, // required
+            $this->config
         ) ?? []);
 
         $headers = $this->headerSelector->selectHeaders(
@@ -2365,7 +2423,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->searchContentPublishRecordsRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -2469,7 +2529,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\SearchContentPublishRecordsResponse';
         $request = $this->searchContentPublishRecordsRequest($marketplace_id, $asin, $page_token);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->searchContentPublishRecordsRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -2564,7 +2626,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
         // query params
         $queryParams = array_merge($queryParams, ObjectSerializer::toQueryValue(
@@ -2573,7 +2636,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
         // query params
         $queryParams = array_merge($queryParams, ObjectSerializer::toQueryValue(
@@ -2582,7 +2646,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            false // required
+            false, // required
+            $this->config
         ) ?? []);
 
         $headers = $this->headerSelector->selectHeaders(
@@ -2685,7 +2750,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->updateContentDocumentRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -2789,7 +2856,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\PostContentDocumentResponse';
         $request = $this->updateContentDocumentRequest($content_reference_key, $marketplace_id, $post_content_document_request);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->updateContentDocumentRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -2887,7 +2956,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
 
         // path params
@@ -3005,7 +3075,9 @@ class AplusContentApi
             $options = $this->createHttpClientOption();
 
             try {
-                $this->rateLimitWait();
+                if ($this->rateLimiterEnabled) {
+                    $this->validateContentDocumentAsinRelationsRateLimiter->consume()->ensureAccepted();
+                }
                 $response = $this->client->send($request, $options);
             } catch (RequestException $e) {
                 throw new ApiException(
@@ -3109,7 +3181,9 @@ class AplusContentApi
         $returnType = '\SpApi\Model\aplusContent\v2020_11_01\ValidateContentDocumentAsinRelationsResponse';
         $request = $this->validateContentDocumentAsinRelationsRequest($marketplace_id, $post_content_document_request, $asin_set);
         $request = $this->config->sign($request);
-        $this->rateLimitWait();
+        if ($this->rateLimiterEnabled) {
+            $this->validateContentDocumentAsinRelationsRateLimiter->consume()->ensureAccepted();
+        }
 
         return $this->client
             ->sendAsync($request, $this->createHttpClientOption())
@@ -3197,7 +3271,8 @@ class AplusContentApi
             'string', // openApiType
             '', // style
             false, // explode
-            true // required
+            true, // required
+            $this->config
         ) ?? []);
         // query params
         $queryParams = array_merge($queryParams, ObjectSerializer::toQueryValue(
@@ -3206,7 +3281,8 @@ class AplusContentApi
             'array', // openApiType
             'form', // style
             false, // explode
-            false // required
+            false, // required
+            $this->config
         ) ?? []);
 
         $headers = $this->headerSelector->selectHeaders(
@@ -3263,21 +3339,6 @@ class AplusContentApi
             $headers,
             $httpBody
         );
-    }
-
-    /**
-     * Rate Limiter waits for tokens.
-     */
-    public function rateLimitWait(): void
-    {
-        if ($this->rateLimiter) {
-            $type = $this->rateLimitConfig->getRateLimitType();
-            if (0 != $this->rateLimitConfig->getTimeOut() && ('token_bucket' == $type || 'fixed_window' == $type)) {
-                $this->rateLimiter->reserve(1, $this->rateLimitConfig->getTimeOut() / 1000)->wait();
-            } else {
-                $this->rateLimiter->consume()->wait();
-            }
-        }
     }
 
     /**

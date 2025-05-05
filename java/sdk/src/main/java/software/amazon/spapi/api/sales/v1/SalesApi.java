@@ -17,8 +17,8 @@ import com.amazon.SellingPartnerAPIAA.LWAAccessTokenCacheImpl;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationCredentials;
 import com.amazon.SellingPartnerAPIAA.LWAAuthorizationSigner;
 import com.amazon.SellingPartnerAPIAA.LWAException;
-import com.amazon.SellingPartnerAPIAA.RateLimitConfiguration;
 import com.google.gson.reflect.TypeToken;
+import io.github.bucket4j.Bucket;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,18 +28,26 @@ import software.amazon.spapi.ApiCallback;
 import software.amazon.spapi.ApiClient;
 import software.amazon.spapi.ApiException;
 import software.amazon.spapi.ApiResponse;
+import software.amazon.spapi.Configuration;
 import software.amazon.spapi.Pair;
 import software.amazon.spapi.ProgressRequestBody;
-import software.amazon.spapi.ProgressResponseBody;
 import software.amazon.spapi.StringUtil;
 import software.amazon.spapi.models.sales.v1.GetOrderMetricsResponse;
 
 public class SalesApi {
     private ApiClient apiClient;
+    private Boolean disableRateLimiting;
 
-    public SalesApi(ApiClient apiClient) {
+    public SalesApi(ApiClient apiClient, Boolean disableRateLimiting) {
         this.apiClient = apiClient;
+        this.disableRateLimiting = disableRateLimiting;
     }
+
+    private final Configuration config = Configuration.get();
+
+    public final Bucket getOrderMetricsBucket = Bucket.builder()
+            .addLimit(config.getLimit("SalesApi-getOrderMetrics"))
+            .build();
 
     /**
      * Build call for getOrderMetrics
@@ -80,13 +88,12 @@ public class SalesApi {
      * @param sku Filters the results by the SKU that you specify. Specifying both ASIN and SKU returns an error. Do not
      *     include this filter if you want the response to include order metrics for all SKUs. Example: TestSKU, if you
      *     want the response to include order metrics for only SKU TestSKU. (optional)
-     * @param progressListener Progress listener
      * @param progressRequestListener Progress request listener
      * @return Call to execute
      * @throws ApiException If fail to serialize the request body object
      * @throws LWAException If calls to fetch LWA access token fails
      */
-    public okhttp3.Call getOrderMetricsCall(
+    private okhttp3.Call getOrderMetricsCall(
             List<String> marketplaceIds,
             String interval,
             String granularity,
@@ -96,7 +103,6 @@ public class SalesApi {
             String firstDayOfWeek,
             String asin,
             String sku,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         Object localVarPostBody = null;
@@ -133,17 +139,6 @@ public class SalesApi {
         final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
         localVarHeaderParams.put("Content-Type", localVarContentType);
 
-        if (progressListener != null) {
-            apiClient.getHttpClient().networkInterceptors().add(chain -> {
-                okhttp3.Response originalResponse = chain.proceed(chain.request());
-                return originalResponse
-                        .newBuilder()
-                        .body(new ProgressResponseBody(originalResponse.body(), progressListener))
-                        .build();
-            });
-        }
-
-        String[] localVarAuthNames = new String[] {};
         return apiClient.buildCall(
                 localVarPath,
                 "GET",
@@ -152,7 +147,6 @@ public class SalesApi {
                 localVarPostBody,
                 localVarHeaderParams,
                 localVarFormParams,
-                localVarAuthNames,
                 progressRequestListener);
     }
 
@@ -166,7 +160,6 @@ public class SalesApi {
             String firstDayOfWeek,
             String asin,
             String sku,
-            final ProgressResponseBody.ProgressListener progressListener,
             final ProgressRequestBody.ProgressRequestListener progressRequestListener)
             throws ApiException, LWAException {
         // verify the required parameter 'marketplaceIds' is set
@@ -193,7 +186,6 @@ public class SalesApi {
                 firstDayOfWeek,
                 asin,
                 sku,
-                progressListener,
                 progressRequestListener);
     }
 
@@ -340,10 +332,11 @@ public class SalesApi {
                 firstDayOfWeek,
                 asin,
                 sku,
-                null,
                 null);
-        Type localVarReturnType = new TypeToken<GetOrderMetricsResponse>() {}.getType();
-        return apiClient.execute(call, localVarReturnType);
+        if (disableRateLimiting || getOrderMetricsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetOrderMetricsResponse>() {}.getType();
+            return apiClient.execute(call, localVarReturnType);
+        } else throw new ApiException.RateLimitExceeded("getOrderMetrics operation exceeds rate limit");
     }
 
     /**
@@ -409,11 +402,9 @@ public class SalesApi {
             final ApiCallback<GetOrderMetricsResponse> callback)
             throws ApiException, LWAException {
 
-        ProgressResponseBody.ProgressListener progressListener = null;
         ProgressRequestBody.ProgressRequestListener progressRequestListener = null;
 
         if (callback != null) {
-            progressListener = callback::onDownloadProgress;
             progressRequestListener = callback::onUploadProgress;
         }
 
@@ -427,11 +418,12 @@ public class SalesApi {
                 firstDayOfWeek,
                 asin,
                 sku,
-                progressListener,
                 progressRequestListener);
-        Type localVarReturnType = new TypeToken<GetOrderMetricsResponse>() {}.getType();
-        apiClient.executeAsync(call, localVarReturnType, callback);
-        return call;
+        if (disableRateLimiting || getOrderMetricsBucket.tryConsume(1)) {
+            Type localVarReturnType = new TypeToken<GetOrderMetricsResponse>() {}.getType();
+            apiClient.executeAsync(call, localVarReturnType, callback);
+            return call;
+        } else throw new ApiException.RateLimitExceeded("getOrderMetrics operation exceeds rate limit");
     }
 
     public static class Builder {
@@ -439,7 +431,7 @@ public class SalesApi {
         private String endpoint;
         private LWAAccessTokenCache lwaAccessTokenCache;
         private Boolean disableAccessTokenCache = false;
-        private RateLimitConfiguration rateLimitConfiguration;
+        private Boolean disableRateLimiting = false;
 
         public Builder lwaAuthorizationCredentials(LWAAuthorizationCredentials lwaAuthorizationCredentials) {
             this.lwaAuthorizationCredentials = lwaAuthorizationCredentials;
@@ -461,13 +453,8 @@ public class SalesApi {
             return this;
         }
 
-        public Builder rateLimitConfigurationOnRequests(RateLimitConfiguration rateLimitConfiguration) {
-            this.rateLimitConfiguration = rateLimitConfiguration;
-            return this;
-        }
-
-        public Builder disableRateLimitOnRequests() {
-            this.rateLimitConfiguration = null;
+        public Builder disableRateLimiting() {
+            this.disableRateLimiting = true;
             return this;
         }
 
@@ -490,10 +477,11 @@ public class SalesApi {
                 lwaAuthorizationSigner = new LWAAuthorizationSigner(lwaAuthorizationCredentials, lwaAccessTokenCache);
             }
 
-            return new SalesApi(new ApiClient()
-                    .setLWAAuthorizationSigner(lwaAuthorizationSigner)
-                    .setBasePath(endpoint)
-                    .setRateLimiter(rateLimitConfiguration));
+            return new SalesApi(
+                    new ApiClient()
+                            .setLWAAuthorizationSigner(lwaAuthorizationSigner)
+                            .setBasePath(endpoint),
+                    disableRateLimiting);
         }
     }
 }
