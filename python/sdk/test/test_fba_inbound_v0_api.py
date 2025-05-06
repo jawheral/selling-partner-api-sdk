@@ -7,12 +7,12 @@ import rstr
 
 from spapi.auth.credentials import SPAPIConfig
 from spapi.client import SPAPIClient
-from spapi.api.product_pricing_v0.product_pricing_api import ProductPricingApi
+from spapi.api.fulfillment_inbound_v0.fba_inbound_v0_api import FbaInboundV0Api
 
-import spapi.models.product_pricing_v0 as models
+import spapi.models.fulfillment_inbound_v0 as models
 
-class TestProductPricingApi(unittest.TestCase):
-    """ProductPricingApi unit test stubs"""
+class TestFbaInboundV0Api(unittest.TestCase):
+    """FbaInboundV0Api unit test stubs"""
 
     def setUp(self):
         # Tests Mock Server
@@ -26,67 +26,65 @@ class TestProductPricingApi(unittest.TestCase):
             scope = None
         )
         client = SPAPIClient(config, self.mock_server_endpoint_oauth, self.mock_server_endpoint)
-        self.api = ProductPricingApi(client.api_client)
+        self.api = FbaInboundV0Api(client.api_client)
 
     def tearDown(self):
         pass
 
-    def test_get_competitive_pricing(self):
+    def test_get_bill_of_lading(self):
+        shipment_id = self._get_random_value("str", None)
+        
+        self.instruct_backend_mock(self.to_camel_case("get_bill_of_lading"), "200")
+        response = self.api.get_bill_of_lading_with_http_info(shipment_id, )
+        self.assertEqual(200, response[1])
+        self.assert_valid_response_payload(200, response[0])
+        pass
+
+    def test_get_labels(self):
+        shipment_id = self._get_random_value("str", None)
+        page_type = self._get_random_value("str", None)
+        label_type = self._get_random_value("str", None)
+        
+        self.instruct_backend_mock(self.to_camel_case("get_labels"), "200")
+        response = self.api.get_labels_with_http_info(shipment_id, page_type, label_type, )
+        self.assertEqual(200, response[1])
+        self.assert_valid_response_payload(200, response[0])
+        pass
+
+    def test_get_prep_instructions(self):
+        ship_to_country_code = self._get_random_value("str", None)
+        
+        self.instruct_backend_mock(self.to_camel_case("get_prep_instructions"), "200")
+        response = self.api.get_prep_instructions_with_http_info(ship_to_country_code, )
+        self.assertEqual(200, response[1])
+        self.assert_valid_response_payload(200, response[0])
+        pass
+
+    def test_get_shipment_items(self):
+        query_type = self._get_random_value("str", None)
         marketplace_id = self._get_random_value("str", None)
-        item_type = self._get_random_value("str", None)
         
-        self.instruct_backend_mock(self.to_camel_case("get_competitive_pricing"), "200")
-        response = self.api.get_competitive_pricing_with_http_info(marketplace_id, item_type, )
+        self.instruct_backend_mock(self.to_camel_case("get_shipment_items"), "200")
+        response = self.api.get_shipment_items_with_http_info(query_type, marketplace_id, )
         self.assertEqual(200, response[1])
         self.assert_valid_response_payload(200, response[0])
         pass
 
-    def test_get_item_offers(self):
+    def test_get_shipment_items_by_shipment_id(self):
+        shipment_id = self._get_random_value("str", None)
+        
+        self.instruct_backend_mock(self.to_camel_case("get_shipment_items_by_shipment_id"), "200")
+        response = self.api.get_shipment_items_by_shipment_id_with_http_info(shipment_id, )
+        self.assertEqual(200, response[1])
+        self.assert_valid_response_payload(200, response[0])
+        pass
+
+    def test_get_shipments(self):
+        query_type = self._get_random_value("str", None)
         marketplace_id = self._get_random_value("str", None)
-        item_condition = self._get_random_value("str", None)
-        asin = self._get_random_value("str", None)
         
-        self.instruct_backend_mock(self.to_camel_case("get_item_offers"), "200")
-        response = self.api.get_item_offers_with_http_info(marketplace_id, item_condition, asin, )
-        self.assertEqual(200, response[1])
-        self.assert_valid_response_payload(200, response[0])
-        pass
-
-    def test_get_item_offers_batch(self):
-        get_item_offers_batch_request_body = self._get_random_value("GetItemOffersBatchRequest", None)
-        
-        self.instruct_backend_mock(self.to_camel_case("get_item_offers_batch"), "200")
-        response = self.api.get_item_offers_batch_with_http_info(get_item_offers_batch_request_body, )
-        self.assertEqual(200, response[1])
-        self.assert_valid_response_payload(200, response[0])
-        pass
-
-    def test_get_listing_offers(self):
-        marketplace_id = self._get_random_value("str", None)
-        item_condition = self._get_random_value("str", None)
-        seller_sku = self._get_random_value("str", None)
-        
-        self.instruct_backend_mock(self.to_camel_case("get_listing_offers"), "200")
-        response = self.api.get_listing_offers_with_http_info(marketplace_id, item_condition, seller_sku, )
-        self.assertEqual(200, response[1])
-        self.assert_valid_response_payload(200, response[0])
-        pass
-
-    def test_get_listing_offers_batch(self):
-        get_listing_offers_batch_request_body = self._get_random_value("GetListingOffersBatchRequest", None)
-        
-        self.instruct_backend_mock(self.to_camel_case("get_listing_offers_batch"), "200")
-        response = self.api.get_listing_offers_batch_with_http_info(get_listing_offers_batch_request_body, )
-        self.assertEqual(200, response[1])
-        self.assert_valid_response_payload(200, response[0])
-        pass
-
-    def test_get_pricing(self):
-        marketplace_id = self._get_random_value("str", None)
-        item_type = self._get_random_value("str", None)
-        
-        self.instruct_backend_mock(self.to_camel_case("get_pricing"), "200")
-        response = self.api.get_pricing_with_http_info(marketplace_id, item_type, )
+        self.instruct_backend_mock(self.to_camel_case("get_shipments"), "200")
+        response = self.api.get_shipments_with_http_info(query_type, marketplace_id, )
         self.assertEqual(200, response[1])
         self.assert_valid_response_payload(200, response[0])
         pass
@@ -95,9 +93,9 @@ class TestProductPricingApi(unittest.TestCase):
     def instruct_backend_mock(self, response: str, code: str) -> None:
         url = f"{self.mock_server_endpoint}/response/{response}/code/{code}"
         ## handle same api operation name exceptions
-        if "vendor" in "api.product_pricing_v0" and response == "getOrder":
+        if "vendor" in "api.fulfillment_inbound_v0" and response == "getOrder":
             url += f"?qualifier=Vendor"
-        if "fulfillment_inbound" in "api.product_pricing_v0" and response == "getShipment":
+        if "fulfillment_inbound" in "api.fulfillment_inbound_v0" and response == "getShipment":
             url += f"?qualifier=FbaInbound"
         requests.post(url)
 

@@ -7,12 +7,12 @@ import rstr
 
 from spapi.auth.credentials import SPAPIConfig
 from spapi.client import SPAPIClient
-from spapi.api.tokens_v2021_03_01.tokens_api import TokensApi
+from spapi.api.fba_eligibility_v1.fba_inbound_eligibility_api import FbaInboundEligibilityApi
 
-import spapi.models.tokens_v2021_03_01 as models
+import spapi.models.fba_eligibility_v1 as models
 
-class TestTokensApi(unittest.TestCase):
-    """TokensApi unit test stubs"""
+class TestFbaInboundEligibilityApi(unittest.TestCase):
+    """FbaInboundEligibilityApi unit test stubs"""
 
     def setUp(self):
         # Tests Mock Server
@@ -26,16 +26,17 @@ class TestTokensApi(unittest.TestCase):
             scope = None
         )
         client = SPAPIClient(config, self.mock_server_endpoint_oauth, self.mock_server_endpoint)
-        self.api = TokensApi(client.api_client)
+        self.api = FbaInboundEligibilityApi(client.api_client)
 
     def tearDown(self):
         pass
 
-    def test_create_restricted_data_token(self):
-        body = self._get_random_value("CreateRestrictedDataTokenRequest", None)
+    def test_get_item_eligibility_preview(self):
+        asin = self._get_random_value("str", None)
+        program = self._get_random_value("str", None)
         
-        self.instruct_backend_mock(self.to_camel_case("create_restricted_data_token"), "200")
-        response = self.api.create_restricted_data_token_with_http_info(body, )
+        self.instruct_backend_mock(self.to_camel_case("get_item_eligibility_preview"), "200")
+        response = self.api.get_item_eligibility_preview_with_http_info(asin, program, )
         self.assertEqual(200, response[1])
         self.assert_valid_response_payload(200, response[0])
         pass
@@ -44,9 +45,9 @@ class TestTokensApi(unittest.TestCase):
     def instruct_backend_mock(self, response: str, code: str) -> None:
         url = f"{self.mock_server_endpoint}/response/{response}/code/{code}"
         ## handle same api operation name exceptions
-        if "vendor" in "api.tokens_v2021_03_01" and response == "getOrder":
+        if "vendor" in "api.fba_eligibility_v1" and response == "getOrder":
             url += f"?qualifier=Vendor"
-        if "fulfillment_inbound" in "api.tokens_v2021_03_01" and response == "getShipment":
+        if "fulfillment_inbound" in "api.fba_eligibility_v1" and response == "getShipment":
             url += f"?qualifier=FbaInbound"
         requests.post(url)
 

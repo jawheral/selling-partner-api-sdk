@@ -2,7 +2,6 @@
 
 from __future__ import absolute_import
 
-import unittest
 import requests
 import rstr
 
@@ -67,6 +66,8 @@ class TestFeesApi(unittest.TestCase):
         ## handle same api operation name exceptions
         if "vendor" in "api.product_fees_v0" and response == "getOrder":
             url += f"?qualifier=Vendor"
+        if "fulfillment_inbound" in "api.product_fees_v0" and response == "getShipment":
+            url += f"?qualifier=FbaInbound"
         requests.post(url)
 
     def _get_random_value(self, data_type, pattern=None):
