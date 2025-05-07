@@ -30,6 +30,7 @@ jobs:
         working-directory: python/sdk
         run: |
           cp ../dev-toolkit/distribution/** .
+          cp ../dev-toolkit/distribution/.bumpversion.cfg .
           cp ../../LICENSE .
           cp ../README.md .
           pip install -r build-requirements.txt
