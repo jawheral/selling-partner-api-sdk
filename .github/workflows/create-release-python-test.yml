@@ -37,7 +37,6 @@ jobs:
       - name: Build SP-API Python SDK
         working-directory: python/sdk
         run: |
-          ls
           bump2version --new-version ${{ github.event.inputs.newVersionNumber }} --allow-dirty --no-tag patch
           python -m build
       - name: Copy back and commit version files
@@ -53,7 +52,7 @@ jobs:
           # Persist new version
           git add python/dev-toolkit/distribution/.bumpversion.cfg python/dev-toolkit/distribution/pyproject.toml
           git commit -m "chore: bump python version to ${{ github.event.inputs.newVersionNumber }}"
-          git push
+          git push "https://${{ secrets.MAFGE_PAT }}@github.com/${{ github.repository }}.git"
       - name: Publish to PyPI
         working-directory: python/sdk
         run: python -m twine upload dist/*
