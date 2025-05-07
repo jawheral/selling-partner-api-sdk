@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "amazon-spapi"
-version = "0.0.1"
+version = "1.0.0"
 authors = [
     { name="Jawher A.", email="sp-api-python-sdk-support@amazon.com" },
 ]
